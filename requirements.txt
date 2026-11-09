@@ -1,0 +1,7 @@
+# AeroChart Inspector Dependencies
+PySide6>=6.5.0
+pymupdf>=1.23.0
+reportlab>=4.0.0
+
+# Build tools (optional, for compiling standalone executable)
+pyinstaller>=6.0.0

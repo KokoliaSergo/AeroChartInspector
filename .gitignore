@@ -1,0 +1,35 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.cpython-*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# PyInstaller temporary build artifacts
+build/
+*.manifest
+*.spec.bak
+
+# Temporary report visual evidence files
+temp_evidence_*.png
+
+# Distribution output (uncomment if you don't want to track release exe)
+# dist/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

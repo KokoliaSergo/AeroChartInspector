@@ -1,11 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
+# Check for custom icon in the project root
+icon_candidates = ['app_icon.ico', 'icon.ico', 'assets/icon.ico']
+app_icon = next((f for f in icon_candidates if os.path.exists(f)), None)
+
+datas = []
+if app_icon:
+    datas.append((app_icon, '.'))
 
 a = Analysis(
     ['app/main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +43,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=app_icon,
 )
