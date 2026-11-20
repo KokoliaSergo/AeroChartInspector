@@ -1,7 +1,7 @@
 import os
 
 APP_NAME = "AeroChart Inspector"
-VERSION = "1.0.0"
+VERSION = "1.0"
 
 # Professional Aviation Light Blue Theme Stylesheet
 THEME_STYLESHEET = """

@@ -27,6 +27,11 @@ temp_evidence_*.png
 *.swp
 *.swo
 
+# Office temporary lock files
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
 # OS files
 Thumbs.db
 ehthumbs.db

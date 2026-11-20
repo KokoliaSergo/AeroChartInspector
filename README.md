@@ -336,4 +336,4 @@ Sample ICAO Instrument Approach Charts are included in the [`Sample charts/`](fi
 
 - **Architect & Lead Developer**: **Sergo Kokolia** (`kokoliakoko@gmail.com`)
 - **Domain**: Aeronautical Cartography, AIS/AIM Data Validation, Instrument Procedure Design QC
-- **Release**: Version 1.0.0
+- **Release**: Version 1.0
