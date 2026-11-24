@@ -60,10 +60,15 @@ class MainWindow(QMainWindow):
         comp.check_ready()
         comp.load_charts()
         
+        # Auto-add to Report Tab checked charts list
+        self.tab_report.auto_add_checked_chart(up_path)
+
         # Switch to the Chart Comparison tab (Index 1)
         self.tabs.setCurrentIndex(1)
 
     def on_charts_loaded(self):
+        if self.tab_comparison.path_updated:
+            self.tab_report.auto_add_checked_chart(self.tab_comparison.path_updated)
         self.tab_errors.btn_add.setEnabled(True)
         self.tab_report.btn_generate.setEnabled(True)
         self.tab_report.update_summary_metrics()

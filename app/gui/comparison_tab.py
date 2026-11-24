@@ -1,12 +1,18 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox
+    QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox,
+    QInputDialog
 )
-from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent
-from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QWheelEvent, QMouseEvent, QPaintEvent
+from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent, QRectF, QRect
+from PySide6.QtGui import (
+    QPixmap, QPainter, QPen, QColor, QWheelEvent, QMouseEvent, 
+    QPaintEvent, QFont, QFontMetrics
+)
 from app.pdf.pdf_loader import PDFLoader
 from app.pdf.pdf_renderer import PDFRenderer
 from app.comparison.flicker import FlickerManager
+from app.gui.dialogs import AddErrorDialog
+from app.errors.error_model import ErrorItem
 
 FLICKER_BTN_STYLE_OFF = """
     QPushButton {
@@ -41,22 +47,22 @@ FLICKER_BTN_STYLE_ON = """
 FLOATING_BTN_STYLE = """
     QPushButton {
         background-color: rgba(255, 255, 255, 0.85);
-        border: 2px dashed #EF4444;
+        border: 2px dashed #0284C7;
         border-radius: 8px;
-        color: #EF4444;
+        color: #0284C7;
         font-size: 20px;
         font-weight: bold;
         padding: 0px;
         margin: 0px;
     }
     QPushButton:hover {
-        background-color: rgba(254, 226, 226, 0.95);
-        border: 2px solid #EF4444;
+        background-color: rgba(224, 242, 254, 0.95);
+        border: 2px solid #0284C7;
     }
     QPushButton:checked {
-        background-color: #EF4444;
+        background-color: #0284C7;
         color: #FFFFFF;
-        border: 2px solid #DC2626;
+        border: 2px solid #0369A1;
     }
     QPushButton:disabled {
         background-color: rgba(248, 250, 252, 0.6);
@@ -68,6 +74,8 @@ FLOATING_BTN_STYLE = """
 class InteractiveChartWidget(QLabel):
     drawing_added = Signal()
     rotation_changed = Signal(float)
+    note_point_selected = Signal(QPointF)
+    error_point_selected = Signal(QPointF)
 
     def __init__(self):
         super().__init__()
@@ -87,8 +95,13 @@ class InteractiveChartWidget(QLabel):
         self.drag_mode_enabled = False
         
         self.drawing_mode = False
+        self.note_mode_enabled = False
+        self.error_mode_enabled = False
+        
         self.strokes = [] 
         self.current_stroke = []
+        self.notes = []          # List of dicts: {"pos": QPointF, "text": str}
+        self.error_markers = []  # List of dicts: {"pos": QPointF, "id": str, "type": str, "description": str}
         
         self.dragging = False
         self.drag_button = None
@@ -100,6 +113,10 @@ class InteractiveChartWidget(QLabel):
         self.offset_old = QPointF(0.0, 0.0)
         self.rotation_old = 0.0
         self.strokes.clear()
+        self.notes.clear()
+        self.error_markers.clear()
+        self.note_mode_enabled = False
+        self.error_mode_enabled = False
         self.update_widget_size()
         self.update()
         self.rotation_changed.emit(self.rotation_old)
@@ -110,6 +127,10 @@ class InteractiveChartWidget(QLabel):
         self.offset_old = QPointF(0.0, 0.0)
         self.rotation_old = 0.0
         self.strokes.clear()
+        self.notes.clear()
+        self.error_markers.clear()
+        self.note_mode_enabled = False
+        self.error_mode_enabled = False
         self.zoom_factor = 1.0
         self.setMinimumSize(700, 700)
         self.resize(700, 700)
@@ -151,32 +172,128 @@ class InteractiveChartWidget(QLabel):
 
     def clear_drawings(self):
         self.strokes.clear()
+        self.notes.clear()
         self.update()
 
+    def _draw_note_callout(self, painter: QPainter, pt: QPointF, text: str):
+        """Draws a professional aeronautical note callout with pointer and text box."""
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Pin marker at target location
+        painter.setPen(QPen(QColor("#0284C7"), 2))
+        painter.setBrush(QColor("#0284C7"))
+        painter.drawEllipse(pt, 4.0, 4.0)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(pt, 1.5, 1.5)
+        
+        # Pointer leader line to bubble
+        bubble_x = pt.x() + 14.0
+        bubble_y = pt.y() - 14.0
+        painter.setPen(QPen(QColor("#0284C7"), 1.5, Qt.DashLine))
+        painter.drawLine(pt, QPointF(bubble_x, bubble_y + 12))
+        
+        # Font and layout
+        font = QFont("Arial", 9)
+        font.setBold(True)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        
+        lines = text.split('\n')
+        max_w = max(fm.horizontalAdvance(l) for l in lines) if lines else 60
+        bubble_w = max(80, min(260, max_w + 18))
+        rect_text = fm.boundingRect(int(bubble_x + 8), int(bubble_y + 6), int(bubble_w - 16), 500, Qt.TextWordWrap, text)
+        bubble_h = max(26, rect_text.height() + 12)
+        bubble_rect = QRectF(bubble_x, bubble_y, bubble_w, bubble_h)
+        
+        # Yellow note callout box
+        painter.setPen(QPen(QColor("#0284C7"), 1.5))
+        painter.setBrush(QColor("#FEF9C3"))
+        painter.drawRoundedRect(bubble_rect, 5.0, 5.0)
+        
+        # Text inside callout
+        painter.setPen(QColor("#0F172A"))
+        painter.drawText(bubble_rect.adjusted(8, 6, -8, -6), Qt.TextWordWrap, text)
+        painter.restore()
+
+    def _draw_error_badge(self, painter: QPainter, pt: QPointF, error_id: str):
+        """Draws a high-visibility crimson discrepancy badge [ ⚠️ ERR-00x ] pinned to coordinates."""
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Target crosshair pin at coordinates
+        painter.setPen(QPen(QColor("#EF4444"), 2))
+        painter.setBrush(QColor("#EF4444"))
+        painter.drawEllipse(pt, 4.0, 4.0)
+        painter.drawLine(QPointF(pt.x() - 7, pt.y()), QPointF(pt.x() + 7, pt.y()))
+        painter.drawLine(QPointF(pt.x(), pt.y() - 7), QPointF(pt.x(), pt.y() + 7))
+        
+        # Pill badge
+        badge_font = QFont("Arial", 9)
+        badge_font.setBold(True)
+        painter.setFont(badge_font)
+        fm = QFontMetrics(badge_font)
+        
+        badge_text = f"⚠️ {error_id}"
+        text_w = fm.horizontalAdvance(badge_text)
+        badge_w = text_w + 14
+        badge_h = 22.0
+        
+        badge_rect = QRectF(pt.x() + 8, pt.y() - 11, badge_w, badge_h)
+        
+        # Outer white glow for contrast against chart contours
+        glow_rect = badge_rect.adjusted(-1.5, -1.5, 1.5, 1.5)
+        painter.setPen(QPen(QColor("#FFFFFF"), 2.0))
+        painter.setBrush(QColor("#DC2626"))
+        painter.drawRoundedRect(glow_rect, 4.0, 4.0)
+        
+        # Text
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
+        painter.restore()
+
     def get_annotated_pixmap(self) -> QPixmap:
+        """Requirement 5: Makes a screenshot ONLY of drawings, notes, error badges, and updated chart (ignores old chart)."""
         if not self.pixmap_updated:
             pixmap = QPixmap(self.size())
             pixmap.fill(Qt.white)
-            self.render(pixmap)
             return pixmap
             
-        full_pixmap = QPixmap(self.size())
-        full_pixmap.fill(Qt.white)
-        self.render(full_pixmap)
-        
-        # Crop to the exact bounding box of the PDF chart (excluding widget background and scroll margins)
         sz_up = self.pixmap_updated.size() * self.zoom_factor
-        scaled_up = self.pixmap_updated.scaled(sz_up, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        widget_size = self.size()
-        center_x = max(0, int((widget_size.width() - scaled_up.width()) / 2))
-        center_y = max(0, int((widget_size.height() - scaled_up.height()) / 2))
+        w = max(1, int(sz_up.width()))
+        h = max(1, int(sz_up.height()))
         
-        from PySide6.QtCore import QRect
-        chart_w = max(1, int(scaled_up.width()))
-        chart_h = max(1, int(scaled_up.height()))
-        chart_rect = QRect(center_x, center_y, chart_w, chart_h)
-        cropped = full_pixmap.copy(chart_rect)
-        return cropped if not cropped.isNull() else full_pixmap
+        pixmap = QPixmap(w, h)
+        pixmap.fill(Qt.white)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        
+        # 1. Draw ONLY Updated chart (completely ignore old chart, opacity, flicker, and widget margins)
+        scaled_up = self.pixmap_updated.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        painter.drawPixmap(0, 0, scaled_up)
+        
+        # 2. Draw user strokes / drawings
+        pen = QPen(QColor(239, 68, 68), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        for stroke in self.strokes:
+            scaled_stroke = [QPointF(pt.x() * self.zoom_factor, pt.y() * self.zoom_factor) for pt in stroke]
+            for i in range(len(scaled_stroke) - 1):
+                painter.drawLine(scaled_stroke[i], scaled_stroke[i+1])
+                
+        # 3. Draw notes
+        for note in self.notes:
+            pt = QPointF(note["pos"].x() * self.zoom_factor, note["pos"].y() * self.zoom_factor)
+            self._draw_note_callout(painter, pt, note["text"])
+            
+        # 4. Draw error badges
+        for err in self.error_markers:
+            pt = QPointF(err["pos"].x() * self.zoom_factor, err["pos"].y() * self.zoom_factor)
+            self._draw_error_badge(painter, pt, err["id"])
+            
+        painter.end()
+        return pixmap
 
     def screen_to_chart_coords(self, screen_pt: QPointF, base_x: float, base_y: float) -> QPointF:
         return QPointF((screen_pt.x() - base_x) / self.zoom_factor, (screen_pt.y() - base_y) / self.zoom_factor)
@@ -248,6 +365,16 @@ class InteractiveChartWidget(QLabel):
             for i in range(len(screen_current) - 1):
                 painter.drawLine(screen_current[i], screen_current[i+1])
 
+        # Draw notes
+        for note in self.notes:
+            scr_pt = self.chart_to_screen_coords(note["pos"], x_up, y_up)
+            self._draw_note_callout(painter, scr_pt, note["text"])
+
+        # Draw error markers
+        for err in self.error_markers:
+            scr_pt = self.chart_to_screen_coords(err["pos"], x_up, y_up)
+            self._draw_error_badge(painter, scr_pt, err["id"])
+
         painter.end()
 
     def wheelEvent(self, event: QWheelEvent):
@@ -258,12 +385,19 @@ class InteractiveChartWidget(QLabel):
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            if self.drawing_mode:
-                sz_up = self.pixmap_updated.size() * self.zoom_factor if self.pixmap_updated else 1
-                widget_size = self.size()
-                center_x = max(0, (widget_size.width() - sz_up.width()) / 2) if self.pixmap_updated else 0
-                center_y = max(0, (widget_size.height() - sz_up.height()) / 2) if self.pixmap_updated else 0
-                local_pt = self.screen_to_chart_coords(QPointF(event.pos()), center_x, center_y)
+            sz_up = self.pixmap_updated.size() * self.zoom_factor if self.pixmap_updated else 1
+            widget_size = self.size()
+            center_x = max(0, (widget_size.width() - sz_up.width()) / 2) if self.pixmap_updated else 0
+            center_y = max(0, (widget_size.height() - sz_up.height()) / 2) if self.pixmap_updated else 0
+            local_pt = self.screen_to_chart_coords(QPointF(event.pos()), center_x, center_y)
+
+            if getattr(self, 'note_mode_enabled', False):
+                self.note_point_selected.emit(local_pt)
+                return
+            elif getattr(self, 'error_mode_enabled', False):
+                self.error_point_selected.emit(local_pt)
+                return
+            elif self.drawing_mode:
                 self.current_stroke = [local_pt]
             elif self.drag_mode_enabled:
                 self.dragging = True
@@ -430,6 +564,18 @@ class ComparisonTab(QWidget):
         self.btn_draw.clicked.connect(self.toggle_drawing_mode)
         toolbar_layout.addWidget(self.btn_draw)
 
+        self.btn_note = QPushButton("Add Note: OFF")
+        self.btn_note.setToolTip("Click to toggle Note Mode, then click on the chart to place a text note.")
+        self.btn_note.setEnabled(False)
+        self.btn_note.clicked.connect(self.toggle_note_mode)
+        toolbar_layout.addWidget(self.btn_note)
+
+        self.btn_pin_error = QPushButton("Record Error: OFF")
+        self.btn_pin_error.setToolTip("Click to toggle Record Error Mode, then click on the chart to log and pin a discrepancy.")
+        self.btn_pin_error.setEnabled(False)
+        self.btn_pin_error.clicked.connect(self.toggle_error_pin_mode)
+        toolbar_layout.addWidget(self.btn_pin_error)
+
         self.btn_clear_draw = QPushButton("Clear Drawings")
         self.btn_clear_draw.setEnabled(False)
         self.btn_clear_draw.clicked.connect(lambda: self.chart_display.clear_drawings())
@@ -479,10 +625,12 @@ class ComparisonTab(QWidget):
         self.chart_display = InteractiveChartWidget()
         self.chart_display.drawing_added.connect(self.on_drawing_added)
         self.chart_display.rotation_changed.connect(self.on_rotation_changed)
+        self.chart_display.note_point_selected.connect(self.on_note_point_selected)
+        self.chart_display.error_point_selected.connect(self.on_error_point_selected)
         self.scroll_area.setWidget(self.chart_display)
         layout.addWidget(self.scroll_area)
 
-        # Requirement 8: Floating transparent buttons on the left side of the chart area
+        # Requirement 2, 4, 6: Floating transparent buttons on the left side of the chart area (Blue Theme)
         self.floating_panel = QWidget(self.scroll_area.viewport())
         self.floating_panel.setStyleSheet("background: transparent; border: none;")
         fp_layout = QVBoxLayout(self.floating_panel)
@@ -515,11 +663,29 @@ class ComparisonTab(QWidget):
         self.float_btn_draw.clicked.connect(self.toggle_drawing_mode)
         fp_layout.addWidget(self.float_btn_draw)
 
+        self.float_btn_note = QPushButton("💬")
+        self.float_btn_note.setFixedSize(42, 42)
+        self.float_btn_note.setCheckable(True)
+        self.float_btn_note.setEnabled(False)
+        self.float_btn_note.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_note.setToolTip("Add Note (Click on chart to place a text note)")
+        self.float_btn_note.clicked.connect(self.toggle_note_mode)
+        fp_layout.addWidget(self.float_btn_note)
+
+        self.float_btn_error = QPushButton("⚠️")
+        self.float_btn_error.setFixedSize(42, 42)
+        self.float_btn_error.setCheckable(True)
+        self.float_btn_error.setEnabled(False)
+        self.float_btn_error.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_error.setToolTip("Record Error (Click on chart to log and pin error)")
+        self.float_btn_error.clicked.connect(self.toggle_error_pin_mode)
+        fp_layout.addWidget(self.float_btn_error)
+
         self.float_btn_clear = QPushButton("⌫")
         self.float_btn_clear.setFixedSize(42, 42)
         self.float_btn_clear.setEnabled(False)
         self.float_btn_clear.setStyleSheet(FLOATING_BTN_STYLE)
-        self.float_btn_clear.setToolTip("Clear Drawings")
+        self.float_btn_clear.setToolTip("Clear Drawings & Notes")
         self.float_btn_clear.clicked.connect(lambda: self.chart_display.clear_drawings())
         fp_layout.addWidget(self.float_btn_clear)
 
@@ -542,7 +708,15 @@ class ComparisonTab(QWidget):
         pixmap = self.chart_display.get_annotated_pixmap()
         if pixmap and not pixmap.isNull():
             self.saved_annotated_pixmaps.append(pixmap)
-            QMessageBox.information(self, "Success", f"Annotated chart successfully saved to report evidence list! (Total saved: {len(self.saved_annotated_pixmaps)})")
+            parent_win = self.window()
+            tab_report = getattr(parent_win, 'tab_report', None)
+            if tab_report:
+                tab_report.refresh_evidence_list()
+                tab_report.update_summary_metrics()
+            QMessageBox.information(
+                self, "Success", 
+                f"Annotated chart successfully saved to report evidence list! (Total saved: {len(self.saved_annotated_pixmaps)})"
+            )
 
     def browse_chart_updated(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Select Updated Chart", "", "PDF Files (*.pdf)")
@@ -555,7 +729,12 @@ class ComparisonTab(QWidget):
             self.path_updated = filename
             self.label_updated.setText(f"<b>Updated chart:</b> <span style='color: #0284C7;'>[{filename.split('/')[-1].split('\\')[-1]}]</span>")
             
+            # Auto-add to report tab checked charts list
             parent_win = self.window()
+            report_tab = getattr(parent_win, 'tab_report', None)
+            if report_tab:
+                report_tab.auto_add_checked_chart(filename)
+
             import_tab = getattr(parent_win, 'tab_import', None)
             if import_tab:
                 mapped_old = import_tab.get_old_chart_for(filename)
@@ -609,12 +788,16 @@ class ComparisonTab(QWidget):
         self.btn_rotate_cw.setEnabled(True)
         self.btn_rotate_90.setEnabled(True)
         self.btn_draw.setEnabled(True)
+        self.btn_note.setEnabled(True)
+        self.btn_pin_error.setEnabled(True)
         self.btn_clear_draw.setEnabled(True)
         
         # Enable floating overlay buttons
         self.float_btn_drag.setEnabled(True)
         self.float_btn_rotate.setEnabled(True)
         self.float_btn_draw.setEnabled(True)
+        self.float_btn_note.setEnabled(True)
+        self.float_btn_error.setEnabled(True)
         self.float_btn_clear.setEnabled(True)
         self.floating_panel.raise_()
         
@@ -639,19 +822,19 @@ class ComparisonTab(QWidget):
         self.btn_flicker.setEnabled(False)
         self.btn_reset_align.setEnabled(False)
         self.btn_toggle_drag.setEnabled(False)
-        self.btn_toggle_drag.setText("Drag Mode: OFF")
         self.btn_rotate_ccw.setEnabled(False)
         self.btn_rotate_cw.setEnabled(False)
         self.btn_rotate_90.setEnabled(False)
         self.lbl_angle.setText("Angle: 0.0°")
-        self.chart_display.drag_mode_enabled = False
         self.btn_draw.setEnabled(False)
-        self.btn_draw.setText("Draw Highlight: OFF")
-        self.chart_display.drawing_mode = False
-        self.chart_display.setCursor(Qt.ArrowCursor)
+        self.btn_note.setEnabled(False)
+        self.btn_pin_error.setEnabled(False)
         self.btn_clear_draw.setEnabled(False)
         self.btn_save_annotated.setEnabled(False)
         self.btn_load.setEnabled(False)
+        
+        # Reset tool mode
+        self.set_active_tool_mode("none")
         
         # Reset floating overlay buttons
         self.float_btn_drag.setEnabled(False)
@@ -659,6 +842,10 @@ class ComparisonTab(QWidget):
         self.float_btn_rotate.setEnabled(False)
         self.float_btn_draw.setEnabled(False)
         self.float_btn_draw.setChecked(False)
+        self.float_btn_note.setEnabled(False)
+        self.float_btn_note.setChecked(False)
+        self.float_btn_error.setEnabled(False)
+        self.float_btn_error.setChecked(False)
         self.float_btn_clear.setEnabled(False)
         
         self.charts_cleared.emit()
@@ -670,38 +857,146 @@ class ComparisonTab(QWidget):
     def on_opacity_changed(self, value):
         self.chart_display.set_opacity(value / 100.0)
 
-    def toggle_drag_mode(self):
-        if self.flicker_manager.timer.isActive():
+    def set_active_tool_mode(self, mode_name: str):
+        """Unified mode controller ensuring tool mutually exclusive states."""
+        if mode_name in ("drag", "draw", "note", "error") and self.flicker_manager.timer.isActive():
             self.flicker_manager.pause()
             self.set_flicker_ui_off()
 
-        self.chart_display.drag_mode_enabled = not self.chart_display.drag_mode_enabled
-        if self.chart_display.drag_mode_enabled:
+        self.chart_display.drag_mode_enabled = (mode_name == "drag")
+        self.chart_display.drawing_mode = (mode_name == "draw")
+        self.chart_display.note_mode_enabled = (mode_name == "note")
+        self.chart_display.error_mode_enabled = (mode_name == "error")
+
+        if mode_name in ("draw", "note", "error"):
+            self.chart_display.setCursor(Qt.CrossCursor)
+        elif mode_name == "drag":
+            self.chart_display.setCursor(Qt.OpenHandCursor)
+        else:
+            self.chart_display.setCursor(Qt.ArrowCursor)
+
+        # Update button states (Blue theme for active state)
+        if mode_name == "drag":
             self.btn_toggle_drag.setText("Drag Mode: ON")
-            self.btn_toggle_drag.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+            self.btn_toggle_drag.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
             self.float_btn_drag.setChecked(True)
         else:
             self.btn_toggle_drag.setText("Drag Mode: OFF")
             self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
             self.float_btn_drag.setChecked(False)
 
-    def set_view_mode(self, mode):
-        self.flicker_manager.pause()
-        self.set_flicker_ui_off()
-        self.chart_display.set_active_view(mode)
-
-    def toggle_drawing_mode(self):
-        self.chart_display.drawing_mode = not self.chart_display.drawing_mode
-        if self.chart_display.drawing_mode:
+        if mode_name == "draw":
             self.btn_draw.setText("Draw Highlight: ON")
-            self.btn_draw.setStyleSheet("background-color: #EF4444; color: white;")
-            self.chart_display.setCursor(Qt.CrossCursor)
+            self.btn_draw.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
             self.float_btn_draw.setChecked(True)
         else:
             self.btn_draw.setText("Draw Highlight: OFF")
             self.btn_draw.setStyleSheet("")
-            self.chart_display.setCursor(Qt.ArrowCursor)
             self.float_btn_draw.setChecked(False)
+
+        if mode_name == "note":
+            self.btn_note.setText("Add Note: ON")
+            self.btn_note.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+            self.float_btn_note.setChecked(True)
+        else:
+            self.btn_note.setText("Add Note: OFF")
+            self.btn_note.setStyleSheet("")
+            self.float_btn_note.setChecked(False)
+
+        if mode_name == "error":
+            self.btn_pin_error.setText("Record Error: ON")
+            self.btn_pin_error.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+            self.float_btn_error.setChecked(True)
+        else:
+            self.btn_pin_error.setText("Record Error: OFF")
+            self.btn_pin_error.setStyleSheet("")
+            self.float_btn_error.setChecked(False)
+
+    def toggle_drag_mode(self):
+        new_mode = "none" if self.chart_display.drag_mode_enabled else "drag"
+        self.set_active_tool_mode(new_mode)
+
+    def toggle_drawing_mode(self):
+        new_mode = "none" if self.chart_display.drawing_mode else "draw"
+        self.set_active_tool_mode(new_mode)
+
+    def toggle_note_mode(self, force_off=False):
+        if force_off:
+            new_mode = "none"
+        else:
+            new_mode = "none" if self.chart_display.note_mode_enabled else "note"
+        self.set_active_tool_mode(new_mode)
+
+    def toggle_error_pin_mode(self, force_off=False):
+        if force_off:
+            new_mode = "none"
+        else:
+            new_mode = "none" if self.chart_display.error_mode_enabled else "error"
+        self.set_active_tool_mode(new_mode)
+
+    def on_note_point_selected(self, pt: QPointF):
+        """Places a text note callout at clicked chart coordinates."""
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Add Chart Note", 
+            "Enter note description or annotation to place on the chart:", ""
+        )
+        if ok and text.strip():
+            self.chart_display.notes.append({"pos": pt, "text": text.strip()})
+            self.chart_display.update()
+            self.btn_save_annotated.setEnabled(True)
+        self.toggle_note_mode(force_off=True)
+
+    def on_error_point_selected(self, pt: QPointF):
+        """Requirement 6: Opens Add Error dialog, saves to Errors tab, and pins Error ID badge to chart."""
+        parent_win = self.window()
+        tab_errors = getattr(parent_win, 'tab_errors', None)
+        if not tab_errors:
+            self.toggle_error_pin_mode(force_off=True)
+            return
+
+        chart_name = ""
+        if self.path_updated:
+            chart_name = self.path_updated.replace('\\', '/').split('/')[-1]
+
+        next_id = tab_errors.get_next_error_id()
+        dialog = AddErrorDialog(next_id, None, chart_name, self)
+        if dialog.exec():
+            data = dialog.error_data
+            if data:
+                new_err = ErrorItem(
+                    error_id=data["id"],
+                    err_type=data["type"],
+                    description=data["description"],
+                    chart=data["chart"],
+                    severity=data["severity"],
+                    comments=data["comments"]
+                )
+                tab_errors.errors_list.append(new_err)
+                tab_errors.populate_table()
+                tab_errors.btn_edit.setEnabled(True)
+                tab_errors.btn_delete.setEnabled(True)
+                tab_errors.error_added.emit()
+
+                # Pin Error ID badge on the chart at the clicked coordinates
+                self.chart_display.error_markers.append({
+                    "pos": pt,
+                    "id": data["id"],
+                    "type": data["type"],
+                    "description": data["description"]
+                })
+                self.chart_display.update()
+                self.btn_save_annotated.setEnabled(True)
+
+                tab_report = getattr(parent_win, 'tab_report', None)
+                if tab_report:
+                    tab_report.update_summary_metrics()
+
+        self.toggle_error_pin_mode(force_off=True)
+
+    def set_view_mode(self, mode):
+        self.flicker_manager.pause()
+        self.set_flicker_ui_off()
+        self.chart_display.set_active_view(mode)
 
     def zoom_in(self):
         curr = self.chart_display.zoom_factor * 1.2
@@ -727,10 +1022,7 @@ class ComparisonTab(QWidget):
             self.chart_display.set_active_view("Both")
         else:
             if self.chart_display.drag_mode_enabled:
-                self.chart_display.drag_mode_enabled = False
-                self.btn_toggle_drag.setText("Drag Mode: OFF")
-                self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
-                self.float_btn_drag.setChecked(False)
+                self.set_active_tool_mode("none")
             
             self.flicker_manager.start()
             self.set_flicker_ui_on()

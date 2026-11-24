@@ -21,6 +21,8 @@ class CalendarDialog(QDialog):
         
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
+        # Week starts from Monday (Requirement 1)
+        self.calendar.setFirstDayOfWeek(Qt.Monday)
         # Remove week numbers from calendar
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.setMinimumDate(QDate(2025, 1, 1))
@@ -339,8 +341,23 @@ class ReportTab(QWidget):
         d_layout.addWidget(btn_close)
         dialog.exec()
 
+    def auto_add_checked_chart(self, file_path: str):
+        """Automatically adds an updated chart to the checked charts list without duplicates."""
+        if not file_path:
+            return
+        clean_name = file_path.replace('\\', '/').split('/')[-1]
+        existing_names = [c.replace('\\', '/').split('/')[-1] for c in self.checked_charts_list]
+        if clean_name not in existing_names:
+            self.checked_charts_list.append(file_path)
+            self.list_checked_charts.addItem(clean_name)
+            self.update_summary_metrics()
+
     def showEvent(self, event):
         super().showEvent(event)
+        parent_win = self.window()
+        comp = getattr(parent_win, 'tab_comparison', None)
+        if comp and getattr(comp, 'path_updated', None):
+            self.auto_add_checked_chart(comp.path_updated)
         self.refresh_evidence_list()
         self.update_summary_metrics()
 

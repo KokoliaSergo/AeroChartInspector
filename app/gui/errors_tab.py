@@ -162,6 +162,16 @@ class ErrorsTab(QWidget):
             if not self.errors_list:
                 self.btn_edit.setEnabled(False)
                 self.btn_delete.setEnabled(False)
+
+            # Sync with ComparisonTab error markers if any
+            parent_win = self.window()
+            comp = getattr(parent_win, 'tab_comparison', None)
+            if comp and hasattr(comp, 'chart_display'):
+                comp.chart_display.error_markers = [
+                    m for m in comp.chart_display.error_markers if m.get("id") != error_id
+                ]
+                comp.chart_display.update()
+
             QMessageBox.information(self, "Success", f"Error {error_id} has been removed.")
 
     def populate_table(self):
