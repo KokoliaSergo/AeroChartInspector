@@ -90,34 +90,6 @@ QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
     border: 1px solid #0284C7;
 }
 
-QComboBox::drop-down {
-    subcontrol-origin: padding;
-    subcontrol-position: top right;
-    width: 24px;
-    border-left: 1px solid #CBD5E1;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
-    background-color: #F1F5F9;
-}
-
-QComboBox::down-arrow {
-    width: 0px;
-    height: 0px;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #475569;
-    margin: auto;
-}
-
-QComboBox::down-arrow:hover {
-    border-top-color: #0284C7;
-}
-
-QComboBox::down-arrow:on {
-    top: 1px;
-    left: 1px;
-}
-
 /* Tables */
 QTableWidget {
     background-color: #FFFFFF;

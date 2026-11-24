@@ -11,19 +11,39 @@ from PySide6.QtGui import QIcon, QPixmap
 from app.reports.report_generator import ReportGenerator
 
 class CalendarDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, current_date_str="", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Validation Date")
-        self.resize(320, 280)
+        self.resize(360, 320)
         
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
         
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
+        # Remove week numbers from calendar
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.setMinimumDate(QDate(2025, 1, 1))
         self.calendar.setMaximumDate(QDate(2035, 12, 31))
         
+        if current_date_str:
+            qdate = QDate.fromString(current_date_str, "dd-MM-yyyy")
+            if qdate.isValid():
+                self.calendar.setSelectedDate(qdate)
+        
         layout.addWidget(self.calendar)
+        
+        # Display the selected date prominently
+        self.lbl_chosen_date = QLabel()
+        self.lbl_chosen_date.setStyleSheet(
+            "font-size: 13px; color: #0F172A; padding: 6px 10px; background-color: #F1F5F9; "
+            "border: 1px solid #CBD5E1; border-radius: 4px;"
+        )
+        layout.addWidget(self.lbl_chosen_date)
+        self.update_chosen_label()
+        
+        self.calendar.selectionChanged.connect(self.update_chosen_label)
+        self.calendar.clicked.connect(self.update_chosen_label)
         
         btn_layout = QHBoxLayout()
         btn_select = QPushButton("Select")
@@ -37,8 +57,12 @@ class CalendarDialog(QDialog):
         btn_layout.addWidget(btn_cancel)
         layout.addLayout(btn_layout)
 
+    def update_chosen_label(self):
+        d_str = self.calendar.selectedDate().toString("dd-MM-yyyy")
+        self.lbl_chosen_date.setText(f"<b>Selected Date:</b> <span style='color: #0284C7; font-weight: bold;'>{d_str}</span>")
+
     def get_selected_date(self) -> str:
-        return self.calendar.selectedDate().toString("yyyy-MM-dd")
+        return self.calendar.selectedDate().toString("dd-MM-yyyy")
 
 
 class ReportTab(QWidget):
@@ -78,7 +102,8 @@ class ReportTab(QWidget):
 
         date_layout = QHBoxLayout()
         self.txt_validation_date = QLineEdit()
-        self.txt_validation_date.setText(datetime.now().strftime("%Y-%m-%d"))
+        self.txt_validation_date.setText(datetime.now().strftime("%d-%m-%Y"))
+        self.txt_validation_date.setPlaceholderText("DD-MM-YYYY")
         
         btn_calendar = QPushButton("Select Date...")
         btn_calendar.clicked.connect(self.open_calendar_dialog)
@@ -249,7 +274,7 @@ class ReportTab(QWidget):
             item = QListWidgetItem()
             thumb = pix.scaled(100, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             item.setIcon(QIcon(thumb))
-            item.setText(f"Evidence #{idx + 1} — Annotated Chart ({pix.width()} × {pix.height()} px)")
+            item.setText(f"Evidence #{idx + 1}")
             self.list_evidence.addItem(item)
 
         count = len(pixmaps)
@@ -357,7 +382,8 @@ class ReportTab(QWidget):
             self.btn_generate.setEnabled(True)
 
     def open_calendar_dialog(self):
-        dialog = CalendarDialog(self)
+        curr_text = self.txt_validation_date.text().strip()
+        dialog = CalendarDialog(curr_text, self)
         if dialog.exec() == QDialog.Accepted:
             selected_date = dialog.get_selected_date()
             self.txt_validation_date.setText(selected_date)
@@ -370,7 +396,7 @@ class ReportTab(QWidget):
             self.txt_inspector_name.setFocus()
             return
 
-        validation_date = self.txt_validation_date.text().strip() or datetime.now().strftime("%Y-%m-%d")
+        validation_date = self.txt_validation_date.text().strip() or datetime.now().strftime("%d-%m-%Y")
         log_sheets = self.txt_log_sheets.text().strip() or "N/A"
         
         primary_chart = "N/A"

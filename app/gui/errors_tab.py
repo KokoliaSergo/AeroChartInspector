@@ -38,6 +38,12 @@ class ErrorsTab(QWidget):
 
         top_layout = QHBoxLayout()
         top_layout.addWidget(QLabel("<b>Recorded Aviation Errors / Discrepancies Log</b>"))
+        
+        self.btn_sev_guide = QPushButton("ⓘ Severity Guide")
+        self.btn_sev_guide.setStyleSheet("background-color: #E0F2FE; color: #0284C7; border: 1px solid #BAE6FD; border-radius: 4px; padding: 5px 12px; font-weight: bold; font-size: 13px;")
+        self.btn_sev_guide.setToolTip(SEVERITY_TOOLTIP)
+        top_layout.addWidget(self.btn_sev_guide)
+        
         top_layout.addStretch()
 
         self.btn_add = QPushButton("Add Error")
@@ -62,7 +68,7 @@ class ErrorsTab(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity 🛈", "Chart", "Description"])
+        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity ⓘ", "Chart", "Description"])
         header_sev = self.table.horizontalHeaderItem(2)
         if header_sev:
             header_sev.setToolTip(SEVERITY_TOOLTIP)

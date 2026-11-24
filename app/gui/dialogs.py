@@ -34,8 +34,16 @@ class AddErrorDialog(QDialog):
     def init_ui(self):
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.DontWrapRows)
+        form_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form_layout.setVerticalSpacing(10)
+        form_layout.setHorizontalSpacing(14)
 
         self.lbl_id = QLabel(f"<b>{self.error_id_str}</b>")
+        self.lbl_id.setFixedHeight(28)
+        self.lbl_id.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.lbl_id.setStyleSheet("color: #0284C7; font-size: 14px; font-weight: bold;")
         form_layout.addRow("Error ID:", self.lbl_id)
 
         self.combo_type = QComboBox()
@@ -63,9 +71,11 @@ class AddErrorDialog(QDialog):
 
         form_layout.addRow("Affected chart:", self.combo_chart)
 
-        self.lbl_severity = QLabel("Severity: <span style='color: #0284C7; font-size: 11px;'>🛈</span>")
+        self.lbl_severity = QLabel("Severity: <span style='color: #0284C7; font-size: 16px; font-weight: bold;'>ⓘ</span>")
         self.lbl_severity.setToolTip(SEVERITY_TOOLTIP)
         self.lbl_severity.setCursor(Qt.WhatsThisCursor)
+        self.lbl_severity.setFixedHeight(28)
+        self.lbl_severity.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         
         self.combo_severity = QComboBox()
         self.combo_severity.addItems(SEVERITY_LEVELS)
@@ -95,6 +105,7 @@ class AddErrorDialog(QDialog):
             self.txt_comments.setPlainText(self.existing_data.get("comments", ""))
 
         layout.addLayout(form_layout)
+        layout.addStretch()
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.on_save)

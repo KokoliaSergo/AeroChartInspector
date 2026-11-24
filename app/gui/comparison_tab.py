@@ -2,11 +2,68 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox
 )
-from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize
+from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QWheelEvent, QMouseEvent, QPaintEvent
 from app.pdf.pdf_loader import PDFLoader
 from app.pdf.pdf_renderer import PDFRenderer
 from app.comparison.flicker import FlickerManager
+
+FLICKER_BTN_STYLE_OFF = """
+    QPushButton {
+        background-color: #F59E0B;
+        color: #FFFFFF;
+        font-weight: bold;
+        border-radius: 4px;
+        padding: 6px 14px;
+    }
+    QPushButton:hover {
+        background-color: #D97706;
+    }
+    QPushButton:disabled {
+        background-color: #FDE68A;
+        color: #92400E;
+    }
+"""
+
+FLICKER_BTN_STYLE_ON = """
+    QPushButton {
+        background-color: #10B981;
+        color: #FFFFFF;
+        font-weight: bold;
+        border-radius: 4px;
+        padding: 6px 14px;
+    }
+    QPushButton:hover {
+        background-color: #059669;
+    }
+"""
+
+FLOATING_BTN_STYLE = """
+    QPushButton {
+        background-color: rgba(255, 255, 255, 0.85);
+        border: 2px dashed #EF4444;
+        border-radius: 8px;
+        color: #EF4444;
+        font-size: 20px;
+        font-weight: bold;
+        padding: 0px;
+        margin: 0px;
+    }
+    QPushButton:hover {
+        background-color: rgba(254, 226, 226, 0.95);
+        border: 2px solid #EF4444;
+    }
+    QPushButton:checked {
+        background-color: #EF4444;
+        color: #FFFFFF;
+        border: 2px solid #DC2626;
+    }
+    QPushButton:disabled {
+        background-color: rgba(248, 250, 252, 0.6);
+        border: 1.5px dashed #CBD5E1;
+        color: #CBD5E1;
+    }
+"""
 
 class InteractiveChartWidget(QLabel):
     drawing_added = Signal()
@@ -343,6 +400,7 @@ class ComparisonTab(QWidget):
         toolbar_layout.addSpacing(10)
 
         self.btn_flicker = QPushButton("Start Flicker")
+        self.btn_flicker.setStyleSheet(FLICKER_BTN_STYLE_OFF)
         self.btn_flicker.setEnabled(False)
         self.btn_flicker.clicked.connect(self.toggle_flicker)
         toolbar_layout.addWidget(self.btn_flicker)
@@ -424,6 +482,59 @@ class ComparisonTab(QWidget):
         self.scroll_area.setWidget(self.chart_display)
         layout.addWidget(self.scroll_area)
 
+        # Requirement 8: Floating transparent buttons on the left side of the chart area
+        self.floating_panel = QWidget(self.scroll_area.viewport())
+        self.floating_panel.setStyleSheet("background: transparent; border: none;")
+        fp_layout = QVBoxLayout(self.floating_panel)
+        fp_layout.setContentsMargins(0, 0, 0, 0)
+        fp_layout.setSpacing(8)
+
+        self.float_btn_drag = QPushButton("✥")
+        self.float_btn_drag.setFixedSize(42, 42)
+        self.float_btn_drag.setCheckable(True)
+        self.float_btn_drag.setEnabled(False)
+        self.float_btn_drag.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_drag.setToolTip("Drag Mode (Left-click drag to pan, Right-click drag to rotate)")
+        self.float_btn_drag.clicked.connect(self.toggle_drag_mode)
+        fp_layout.addWidget(self.float_btn_drag)
+
+        self.float_btn_rotate = QPushButton("↻")
+        self.float_btn_rotate.setFixedSize(42, 42)
+        self.float_btn_rotate.setEnabled(False)
+        self.float_btn_rotate.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_rotate.setToolTip("Rotate Mode (Click to rotate 90° clockwise)")
+        self.float_btn_rotate.clicked.connect(lambda: self.chart_display.rotate_old(90.0))
+        fp_layout.addWidget(self.float_btn_rotate)
+
+        self.float_btn_draw = QPushButton("✎")
+        self.float_btn_draw.setFixedSize(42, 42)
+        self.float_btn_draw.setCheckable(True)
+        self.float_btn_draw.setEnabled(False)
+        self.float_btn_draw.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_draw.setToolTip("Drawing Mode (Highlight discrepancy)")
+        self.float_btn_draw.clicked.connect(self.toggle_drawing_mode)
+        fp_layout.addWidget(self.float_btn_draw)
+
+        self.float_btn_clear = QPushButton("⌫")
+        self.float_btn_clear.setFixedSize(42, 42)
+        self.float_btn_clear.setEnabled(False)
+        self.float_btn_clear.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_clear.setToolTip("Clear Drawings")
+        self.float_btn_clear.clicked.connect(lambda: self.chart_display.clear_drawings())
+        fp_layout.addWidget(self.float_btn_clear)
+
+        self.floating_panel.adjustSize()
+        self.floating_panel.move(16, 16)
+        self.floating_panel.raise_()
+        self.scroll_area.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if hasattr(self, 'scroll_area') and watched == self.scroll_area.viewport():
+            if event.type() == QEvent.Resize and hasattr(self, 'floating_panel') and self.floating_panel:
+                self.floating_panel.move(16, 16)
+                self.floating_panel.raise_()
+        return super().eventFilter(watched, event)
+
     def on_drawing_added(self):
         self.btn_save_annotated.setEnabled(True)
 
@@ -469,6 +580,14 @@ class ComparisonTab(QWidget):
             self.label_old.setText(f"<b>Old chart:</b> <span style='color: #475569;'>[{filename.split('/')[-1].split('\\')[-1]}]</span>")
             self.check_ready()
 
+    def set_flicker_ui_off(self):
+        self.btn_flicker.setText("Start Flicker")
+        self.btn_flicker.setStyleSheet(FLICKER_BTN_STYLE_OFF)
+
+    def set_flicker_ui_on(self):
+        self.btn_flicker.setText("Pause Flicker")
+        self.btn_flicker.setStyleSheet(FLICKER_BTN_STYLE_ON)
+
     def check_ready(self):
         if self.doc_updated and self.doc_old:
             self.btn_load.setEnabled(True)
@@ -483,6 +602,7 @@ class ComparisonTab(QWidget):
         self.btn_show_updated.setEnabled(True)
         self.btn_show_old.setEnabled(True)
         self.btn_flicker.setEnabled(True)
+        self.set_flicker_ui_off()
         self.btn_reset_align.setEnabled(True)
         self.btn_toggle_drag.setEnabled(True)
         self.btn_rotate_ccw.setEnabled(True)
@@ -491,11 +611,19 @@ class ComparisonTab(QWidget):
         self.btn_draw.setEnabled(True)
         self.btn_clear_draw.setEnabled(True)
         
+        # Enable floating overlay buttons
+        self.float_btn_drag.setEnabled(True)
+        self.float_btn_rotate.setEnabled(True)
+        self.float_btn_draw.setEnabled(True)
+        self.float_btn_clear.setEnabled(True)
+        self.floating_panel.raise_()
+        
         self.charts_loaded.emit()
         QMessageBox.information(self, "Success", "Charts loaded successfully.")
 
     def reset_session(self):
         self.flicker_manager.pause()
+        self.set_flicker_ui_off()
         self.doc_updated = None
         self.doc_old = None
         self.path_updated = ""
@@ -509,7 +637,6 @@ class ComparisonTab(QWidget):
         self.btn_show_updated.setEnabled(False)
         self.btn_show_old.setEnabled(False)
         self.btn_flicker.setEnabled(False)
-        self.btn_flicker.setText("Start Flicker")
         self.btn_reset_align.setEnabled(False)
         self.btn_toggle_drag.setEnabled(False)
         self.btn_toggle_drag.setText("Drag Mode: OFF")
@@ -526,6 +653,14 @@ class ComparisonTab(QWidget):
         self.btn_save_annotated.setEnabled(False)
         self.btn_load.setEnabled(False)
         
+        # Reset floating overlay buttons
+        self.float_btn_drag.setEnabled(False)
+        self.float_btn_drag.setChecked(False)
+        self.float_btn_rotate.setEnabled(False)
+        self.float_btn_draw.setEnabled(False)
+        self.float_btn_draw.setChecked(False)
+        self.float_btn_clear.setEnabled(False)
+        
         self.charts_cleared.emit()
         QMessageBox.information(self, "Reset", "Comparison session cleared. Previously defined error logs remain intact.")
 
@@ -538,19 +673,21 @@ class ComparisonTab(QWidget):
     def toggle_drag_mode(self):
         if self.flicker_manager.timer.isActive():
             self.flicker_manager.pause()
-            self.btn_flicker.setText("Start Flicker")
+            self.set_flicker_ui_off()
 
         self.chart_display.drag_mode_enabled = not self.chart_display.drag_mode_enabled
         if self.chart_display.drag_mode_enabled:
             self.btn_toggle_drag.setText("Drag Mode: ON")
             self.btn_toggle_drag.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+            self.float_btn_drag.setChecked(True)
         else:
             self.btn_toggle_drag.setText("Drag Mode: OFF")
             self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+            self.float_btn_drag.setChecked(False)
 
     def set_view_mode(self, mode):
         self.flicker_manager.pause()
-        self.btn_flicker.setText("Start Flicker")
+        self.set_flicker_ui_off()
         self.chart_display.set_active_view(mode)
 
     def toggle_drawing_mode(self):
@@ -559,10 +696,12 @@ class ComparisonTab(QWidget):
             self.btn_draw.setText("Draw Highlight: ON")
             self.btn_draw.setStyleSheet("background-color: #EF4444; color: white;")
             self.chart_display.setCursor(Qt.CrossCursor)
+            self.float_btn_draw.setChecked(True)
         else:
             self.btn_draw.setText("Draw Highlight: OFF")
             self.btn_draw.setStyleSheet("")
             self.chart_display.setCursor(Qt.ArrowCursor)
+            self.float_btn_draw.setChecked(False)
 
     def zoom_in(self):
         curr = self.chart_display.zoom_factor * 1.2
@@ -584,16 +723,17 @@ class ComparisonTab(QWidget):
     def toggle_flicker(self):
         if self.flicker_manager.timer.isActive():
             self.flicker_manager.pause()
-            self.btn_flicker.setText("Start Flicker")
+            self.set_flicker_ui_off()
             self.chart_display.set_active_view("Both")
         else:
             if self.chart_display.drag_mode_enabled:
                 self.chart_display.drag_mode_enabled = False
                 self.btn_toggle_drag.setText("Drag Mode: OFF")
                 self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+                self.float_btn_drag.setChecked(False)
             
             self.flicker_manager.start()
-            self.btn_flicker.setText("Pause Flicker")
+            self.set_flicker_ui_on()
 
     def change_flicker_interval(self, index):
         intervals = [0.2, 0.5, 1.0, 2.0, 3.0]
