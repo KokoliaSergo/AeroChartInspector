@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, 
     QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
     QDialog, QCalendarWidget, QHBoxLayout, QListWidget, QListWidgetItem,
-    QScrollArea
+    QScrollArea, QFrame
 )
 from PySide6.QtCore import QDate, Qt, QSize
 from PySide6.QtGui import QIcon, QPixmap
@@ -48,14 +48,29 @@ class ReportTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        # Outer container layout
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Scroll area for smooth, responsive vertical layout
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+        
+        content_widget = QWidget()
+        content_widget.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(15, 12, 15, 15)
+        layout.setSpacing(12)
         
         layout.addWidget(QLabel("<b>AeroChart Inspector - Review Summary & PDF Report</b>"))
         
         # 1. Review & Log Metadata Group
         qc_group = QGroupBox("Review & Log Metadata")
         qc_layout = QFormLayout()
+        qc_layout.setContentsMargins(12, 12, 12, 12)
+        qc_layout.setSpacing(8)
         
         self.txt_inspector_name = QLineEdit()
         self.txt_inspector_name.setPlaceholderText("Enter Name and Surname (e.g., John Doe)")
@@ -82,8 +97,10 @@ class ReportTab(QWidget):
         # 2. List of Checked Charts Box
         charts_group = QGroupBox("List of Checked Charts")
         charts_layout = QVBoxLayout()
+        charts_layout.setContentsMargins(12, 12, 12, 12)
         
         self.list_checked_charts = QListWidget()
+        self.list_checked_charts.setMinimumHeight(70)
         self.list_checked_charts.setMaximumHeight(100)
         charts_layout.addWidget(self.list_checked_charts)
         
@@ -104,13 +121,14 @@ class ReportTab(QWidget):
         charts_group.setLayout(charts_layout)
         layout.addWidget(charts_group)
 
-        # 3. Captured Visual Evidence Screenshots (Requirement 5)
-        evidence_group = QGroupBox("Captured Visual Evidence (Annotated Chart Screenshots)")
+        # 3. Captured Visual Evidence Screenshots (Enlarged & Clean small text without small window box)
+        self.evidence_group = QGroupBox("Captured Visual Evidence (Annotated Chart Screenshots)")
         evidence_layout = QVBoxLayout()
+        evidence_layout.setContentsMargins(12, 12, 12, 12)
         
         self.list_evidence = QListWidget()
-        self.list_evidence.setIconSize(QSize(90, 60))
-        self.list_evidence.setMaximumHeight(130)
+        self.list_evidence.setIconSize(QSize(100, 70))
+        self.list_evidence.setMinimumHeight(220)
         self.list_evidence.itemDoubleClicked.connect(self.preview_selected_evidence)
         evidence_layout.addWidget(self.list_evidence)
         
@@ -123,8 +141,12 @@ class ReportTab(QWidget):
         btn_remove_evidence.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
         btn_remove_evidence.clicked.connect(self.remove_selected_evidence)
         
-        self.lbl_evidence_count = QLabel("0 screenshot(s) available")
-        self.lbl_evidence_count.setStyleSheet("color: #475569; font-weight: bold; padding-left: 10px;")
+        # Clean small text label replacing the small window box
+        self.lbl_evidence_count = QLabel("0 evidence(s) available")
+        self.lbl_evidence_count.setStyleSheet(
+            "background: transparent; border: none; font-size: 11px; color: #64748B; font-weight: normal; margin-left: 10px;"
+        )
+        self.lbl_evidence_count.setFixedHeight(26)
         
         evidence_btn_layout.addWidget(btn_preview_evidence)
         evidence_btn_layout.addWidget(btn_remove_evidence)
@@ -132,20 +154,33 @@ class ReportTab(QWidget):
         evidence_btn_layout.addStretch()
         evidence_layout.addLayout(evidence_btn_layout)
         
-        evidence_group.setLayout(evidence_layout)
-        layout.addWidget(evidence_group)
+        self.evidence_group.setLayout(evidence_layout)
+        layout.addWidget(self.evidence_group)
 
-        # 4. Summary Display Group
+        # 4. Summary Display Group (Fitted to section, no cutoff or vertical scrollbars)
         summary_group = QGroupBox("Validation Review Summary")
         summary_layout = QVBoxLayout()
+        summary_layout.setContentsMargins(12, 12, 12, 12)
+        
         self.summary_text = QTextEdit()
         self.summary_text.setReadOnly(True)
-        self.summary_text.setMaximumHeight(110)
+        self.summary_text.setMinimumHeight(200)
+        self.summary_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 10px 14px;
+                font-size: 13px;
+                line-height: 1.4;
+                color: #0F172A;
+            }
+        """)
         summary_layout.addWidget(self.summary_text)
         summary_group.setLayout(summary_layout)
         layout.addWidget(summary_group)
         
-        # 5. Generate PDF Report button (Requirement 9: Green styled button)
+        # 5. Generate PDF Report button (Green styled button)
         self.btn_generate = QPushButton("Generate PDF Report")
         self.btn_generate.setEnabled(False)
         self.btn_generate.setStyleSheet("""
@@ -170,6 +205,9 @@ class ReportTab(QWidget):
         """)
         self.btn_generate.clicked.connect(self.generate_report)
         layout.addWidget(self.btn_generate)
+
+        scroll_area.setWidget(content_widget)
+        outer_layout.addWidget(scroll_area)
 
         self.update_summary_metrics()
 
@@ -202,21 +240,24 @@ class ReportTab(QWidget):
         parent_win = self.window()
         comp = getattr(parent_win, 'tab_comparison', None)
         if not comp or not hasattr(comp, 'saved_annotated_pixmaps'):
-            self.lbl_evidence_count.setText("0 screenshot(s) available")
+            self.lbl_evidence_count.setText("0 evidence(s) available")
+            self.evidence_group.setTitle("Captured Visual Evidence (Annotated Chart Screenshots) — 0 available")
             return
 
         pixmaps = comp.saved_annotated_pixmaps
         for idx, pix in enumerate(pixmaps):
             item = QListWidgetItem()
-            thumb = pix.scaled(90, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            thumb = pix.scaled(100, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             item.setIcon(QIcon(thumb))
             item.setText(f"Evidence #{idx + 1} — Annotated Chart ({pix.width()} × {pix.height()} px)")
             self.list_evidence.addItem(item)
 
-        self.lbl_evidence_count.setText(f"{len(pixmaps)} screenshot(s) available for report")
+        count = len(pixmaps)
+        self.lbl_evidence_count.setText(f"{count} evidence(s) available")
+        self.evidence_group.setTitle(f"Captured Visual Evidence (Annotated Chart Screenshots) — {count} available")
 
     def remove_selected_evidence(self):
-        """Requirement 5: Allows removing unnecessary comparison screenshots before report generation."""
+        """Allows removing unnecessary comparison screenshots before report generation."""
         selected_items = self.list_evidence.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "Selection Required", "Please select an evidence screenshot from the list to remove.")
@@ -336,7 +377,7 @@ class ReportTab(QWidget):
         if hasattr(parent_win, 'tab_comparison') and parent_win.tab_comparison.path_updated:
             primary_chart = parent_win.tab_comparison.path_updated.split('/')[-1].split('\\')[-1]
 
-        # Requirement 8: Implement filename logic: LogSheetNumber_NameSurname.pdf
+        # Implement filename logic: LogSheetNumber_NameSurname.pdf
         clean_log = re.sub(r'[\\/*?:"<>|,\s]+', '_', log_sheets).strip('_') if log_sheets and log_sheets != "N/A" else "LogSheet"
         clean_name = "".join(re.sub(r'[\\/*?:"<>|]', '', inspector_name).split()) if inspector_name else "Inspector"
         suggested_filename = f"{clean_log}_{clean_name}.pdf"

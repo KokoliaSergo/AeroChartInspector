@@ -2,7 +2,23 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QLineEdit, 
     QComboBox, QTextEdit, QFormLayout, QDialogButtonBox
 )
+from PySide6.QtCore import Qt
 from app.errors.error_model import ERROR_TYPES, SEVERITY_LEVELS
+
+SEVERITY_TOOLTIP = (
+    "<b>Severity Classification Guidelines (Aviation QC Standards):</b><br><br>"
+    "• <span style='color: #EF4444; font-weight: bold;'>Critical:</span> Safety-critical discrepancy "
+    "directly affecting flight safety, terrain/obstacle clearance, or navigation integrity "
+    "(e.g., incorrect minimum safe altitudes, wrong runway coordinates, wrong frequency or bearings, "
+    "missing obstacles). <i>Must be corrected immediately prior to publication.</i><br><br>"
+    "• <span style='color: #D97706; font-weight: bold;'>Major:</span> Operational discrepancy "
+    "affecting procedure navigation, route execution, or flight efficiency without immediate collision hazard "
+    "(e.g., misspelled waypoint/fix, misleading symbology, erroneous procedure turn profile).<br><br>"
+    "• <span style='color: #0284C7; font-weight: bold;'>Minor:</span> Non-safety discrepancy with negligible "
+    "operational impact (e.g., cosmetic drafting inconsistencies, minor label overlapping, marginal typo).<br><br>"
+    "• <span style='color: #475569; font-weight: bold;'>Observation:</span> Informational remark, drafting note, "
+    "or quality recommendation for future chart cycles."
+)
 
 class AddErrorDialog(QDialog):
     def __init__(self, error_id_str, existing_data=None, default_chart_name="", parent=None):
@@ -47,10 +63,25 @@ class AddErrorDialog(QDialog):
 
         form_layout.addRow("Affected chart:", self.combo_chart)
 
+        self.lbl_severity = QLabel("Severity: <span style='color: #0284C7; font-size: 11px;'>🛈</span>")
+        self.lbl_severity.setToolTip(SEVERITY_TOOLTIP)
+        self.lbl_severity.setCursor(Qt.WhatsThisCursor)
+        
         self.combo_severity = QComboBox()
         self.combo_severity.addItems(SEVERITY_LEVELS)
         self.combo_severity.setCurrentText("Major")
-        form_layout.addRow("Severity:", self.combo_severity)
+        self.combo_severity.setToolTip(SEVERITY_TOOLTIP)
+        
+        sev_tooltips = {
+            "Critical": "Critical: Safety-critical discrepancy directly impacting flight safety, terrain/obstacle clearance, or navigation integrity. Must be resolved prior to publication.",
+            "Major": "Major: Operational discrepancy affecting flight efficiency or procedure navigation without immediate CFIT/collision hazard.",
+            "Minor": "Minor: Non-safety discrepancy with negligible operational impact (e.g., cosmetic drafting errors, minor typographical inconsistencies).",
+            "Observation": "Observation: Informational comment, drafting note, or quality recommendation for future chart cycles."
+        }
+        for i, s in enumerate(SEVERITY_LEVELS):
+            self.combo_severity.setItemData(i, sev_tooltips.get(s, ""), Qt.ToolTipRole)
+            
+        form_layout.addRow(self.lbl_severity, self.combo_severity)
 
         self.txt_comments = QTextEdit()
         self.txt_comments.setMaximumHeight(50)

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from app.errors.error_model import ErrorItem
-from app.gui.dialogs import AddErrorDialog
+from app.gui.dialogs import AddErrorDialog, SEVERITY_TOOLTIP
 
 class ErrorsTab(QWidget):
     error_added = Signal()
@@ -62,7 +62,10 @@ class ErrorsTab(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity", "Chart", "Description"])
+        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity 🛈", "Chart", "Description"])
+        header_sev = self.table.horizontalHeaderItem(2)
+        if header_sev:
+            header_sev.setToolTip(SEVERITY_TOOLTIP)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -160,6 +163,8 @@ class ErrorsTab(QWidget):
         for row, err in enumerate(self.errors_list):
             self.table.setItem(row, 0, QTableWidgetItem(err.id))
             self.table.setItem(row, 1, QTableWidgetItem(err.type))
-            self.table.setItem(row, 2, QTableWidgetItem(err.severity))
+            item_sev = QTableWidgetItem(err.severity)
+            item_sev.setToolTip(SEVERITY_TOOLTIP)
+            self.table.setItem(row, 2, item_sev)
             self.table.setItem(row, 3, QTableWidgetItem(err.chart))
             self.table.setItem(row, 4, QTableWidgetItem(err.description))

@@ -66,9 +66,4 @@ class MainWindow(QMainWindow):
     def on_charts_loaded(self):
         self.tab_errors.btn_add.setEnabled(True)
         self.tab_report.btn_generate.setEnabled(True)
-        self.tab_report.summary_text.setPlainText(
-            f"Review Session Active\n\n"
-            f"Updated chart: {self.tab_comparison.path_updated}\n"
-            f"Old chart: {self.tab_comparison.path_old}\n"
-            f"Total Errors Recorded: 0"
-        )
+        self.tab_report.update_summary_metrics()
