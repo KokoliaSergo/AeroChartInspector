@@ -373,7 +373,8 @@ class ReportTab(QWidget):
             comp = parent_win.tab_comparison
             annotated_count = len(comp.saved_annotated_pixmaps)
 
-        total_errors = len(errors_list)
+        total_errors = sum(1 for e in errors_list if not e.id.startswith("NT-"))
+        total_notes = sum(1 for e in errors_list if e.id.startswith("NT-"))
         critical = sum(1 for e in errors_list if e.severity == "Critical")
         major = sum(1 for e in errors_list if e.severity == "Major")
         minor = sum(1 for e in errors_list if e.severity == "Minor")
@@ -387,6 +388,7 @@ class ReportTab(QWidget):
             f"Validation Summary Metrics:\n"
             f"----------------------------------------\n"
             f"• Total Errors: {total_errors}\n"
+            f"• Total Notes: {total_notes}\n"
             f"• Critical Errors: {critical}\n"
             f"• Major Errors: {major}\n"
             f"• Minor Errors: {minor}\n"
@@ -395,7 +397,7 @@ class ReportTab(QWidget):
         )
         self.summary_text.setPlainText(summary_str)
 
-        if total_errors > 0 or annotated_count > 0 or checked_count > 0:
+        if total_errors > 0 or total_notes > 0 or annotated_count > 0 or checked_count > 0:
             self.btn_generate.setEnabled(True)
 
     def open_calendar_dialog(self):

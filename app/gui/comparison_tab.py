@@ -76,6 +76,7 @@ class InteractiveChartWidget(QLabel):
     rotation_changed = Signal(float)
     note_point_selected = Signal(QPointF)
     error_point_selected = Signal(QPointF)
+    note_selected = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -100,8 +101,12 @@ class InteractiveChartWidget(QLabel):
         
         self.strokes = [] 
         self.current_stroke = []
-        self.notes = []          # List of dicts: {"pos": QPointF, "text": str}
+        self.notes = []          # List of dicts: {"id": str, "pos": QPointF, "text": str, "chart": str}
         self.error_markers = []  # List of dicts: {"pos": QPointF, "id": str, "type": str, "description": str}
+        
+        self.selected_note = None
+        self.is_dragging_note = False
+        self.note_drag_offset = QPointF(0, 0)
         
         self.dragging = False
         self.drag_button = None
@@ -115,6 +120,8 @@ class InteractiveChartWidget(QLabel):
         self.strokes.clear()
         self.notes.clear()
         self.error_markers.clear()
+        self.selected_note = None
+        self.is_dragging_note = False
         self.note_mode_enabled = False
         self.error_mode_enabled = False
         self.update_widget_size()
@@ -129,6 +136,8 @@ class InteractiveChartWidget(QLabel):
         self.strokes.clear()
         self.notes.clear()
         self.error_markers.clear()
+        self.selected_note = None
+        self.is_dragging_note = False
         self.note_mode_enabled = False
         self.error_mode_enabled = False
         self.zoom_factor = 1.0
@@ -171,15 +180,55 @@ class InteractiveChartWidget(QLabel):
         self.rotation_changed.emit(self.rotation_old)
 
     def clear_drawings(self):
+        """Item 3: Only clears drawing strokes, strictly preserves notes and error markers!"""
         self.strokes.clear()
-        self.notes.clear()
         self.update()
 
-    def _draw_note_callout(self, painter: QPainter, pt: QPointF, text: str):
-        """Draws a professional aeronautical note callout with pointer and text box."""
+    def _get_note_bubble_rect(self, scr_pt: QPointF, note_id: str, text: str) -> QRectF:
+        font = QFont("Arial", 9)
+        fm = QFontMetrics(font)
+        badge_text = f"📝 {note_id}"
+        
+        lines = text.split('\n')
+        max_w = max(fm.horizontalAdvance(l) for l in lines) if lines else 60
+        max_w = max(max_w, fm.horizontalAdvance(badge_text) + 20)
+        bubble_w = max(95.0, min(280.0, float(max_w + 24)))
+        
+        rect_text = fm.boundingRect(0, 0, int(bubble_w - 16), 500, Qt.TextWordWrap, text)
+        bubble_h = max(38.0, float(rect_text.height() + 26))
+        
+        bubble_x = scr_pt.x() + 14.0
+        bubble_y = scr_pt.y() - 14.0
+        return QRectF(bubble_x, bubble_y, bubble_w, bubble_h)
+
+    def hit_test_note(self, screen_pt: QPointF):
+        """Hit test for selecting or moving notes on chart."""
+        if not self.pixmap_updated or not self.notes:
+            return None
+        sz_up = self.pixmap_updated.size() * self.zoom_factor
+        widget_size = self.size()
+        center_x = max(0, (widget_size.width() - sz_up.width()) / 2)
+        center_y = max(0, (widget_size.height() - sz_up.height()) / 2)
+
+        for note in reversed(self.notes):
+            scr_pt = self.chart_to_screen_coords(note["pos"], center_x, center_y)
+            dx = screen_pt.x() - scr_pt.x()
+            dy = screen_pt.y() - scr_pt.y()
+            if (dx*dx + dy*dy) <= 144.0: # 12px radius of pin
+                return note
+            rect = self._get_note_bubble_rect(scr_pt, note.get("id", "NT"), note.get("text", ""))
+            if rect.adjusted(-4, -4, 4, 4).contains(screen_pt):
+                return note
+        return None
+
+    def _draw_note_callout(self, painter: QPainter, pt: QPointF, note: dict, is_selected: bool = False):
+        """Draws a professional aeronautical note callout with pointer, ID badge, and text box."""
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         
+        note_id = note.get("id", "NT")
+        text = note.get("text", "")
+
         # Pin marker at target location
         painter.setPen(QPen(QColor("#0284C7"), 2))
         painter.setBrush(QColor("#0284C7"))
@@ -187,33 +236,36 @@ class InteractiveChartWidget(QLabel):
         painter.setBrush(QColor("#FFFFFF"))
         painter.drawEllipse(pt, 1.5, 1.5)
         
+        bubble_rect = self._get_note_bubble_rect(pt, note_id, text)
+        
         # Pointer leader line to bubble
-        bubble_x = pt.x() + 14.0
-        bubble_y = pt.y() - 14.0
         painter.setPen(QPen(QColor("#0284C7"), 1.5, Qt.DashLine))
-        painter.drawLine(pt, QPointF(bubble_x, bubble_y + 12))
+        painter.drawLine(pt, QPointF(bubble_rect.left(), bubble_rect.top() + 14))
         
-        # Font and layout
-        font = QFont("Arial", 9)
-        font.setBold(True)
-        painter.setFont(font)
-        fm = QFontMetrics(font)
+        # Yellow note callout box (with selection glow if selected)
+        if is_selected:
+            glow_rect = bubble_rect.adjusted(-2.5, -2.5, 2.5, 2.5)
+            painter.setPen(QPen(QColor("#0284C7"), 2.5))
+            painter.setBrush(QColor("#FEF08A"))
+            painter.drawRoundedRect(glow_rect, 6.0, 6.0)
+        else:
+            painter.setPen(QPen(QColor("#0284C7"), 1.5))
+            painter.setBrush(QColor("#FEF9C3"))
+            painter.drawRoundedRect(bubble_rect, 5.0, 5.0)
         
-        lines = text.split('\n')
-        max_w = max(fm.horizontalAdvance(l) for l in lines) if lines else 60
-        bubble_w = max(80, min(260, max_w + 18))
-        rect_text = fm.boundingRect(int(bubble_x + 8), int(bubble_y + 6), int(bubble_w - 16), 500, Qt.TextWordWrap, text)
-        bubble_h = max(26, rect_text.height() + 12)
-        bubble_rect = QRectF(bubble_x, bubble_y, bubble_w, bubble_h)
-        
-        # Yellow note callout box
-        painter.setPen(QPen(QColor("#0284C7"), 1.5))
-        painter.setBrush(QColor("#FEF9C3"))
-        painter.drawRoundedRect(bubble_rect, 5.0, 5.0)
-        
+        # Note ID Header
+        id_font = QFont("Arial", 8)
+        id_font.setBold(True)
+        painter.setFont(id_font)
+        painter.setPen(QColor("#0284C7"))
+        painter.drawText(QRectF(bubble_rect.left() + 8, bubble_rect.top() + 4, bubble_rect.width() - 16, 14), Qt.AlignLeft, f"📝 {note_id}")
+
         # Text inside callout
+        text_font = QFont("Arial", 9)
+        painter.setFont(text_font)
         painter.setPen(QColor("#0F172A"))
-        painter.drawText(bubble_rect.adjusted(8, 6, -8, -6), Qt.TextWordWrap, text)
+        text_rect = QRectF(bubble_rect.left() + 8, bubble_rect.top() + 20, bubble_rect.width() - 16, bubble_rect.height() - 24)
+        painter.drawText(text_rect, Qt.TextWordWrap, text)
         painter.restore()
 
     def _draw_error_badge(self, painter: QPainter, pt: QPointF, error_id: str):
@@ -285,7 +337,7 @@ class InteractiveChartWidget(QLabel):
         # 3. Draw notes
         for note in self.notes:
             pt = QPointF(note["pos"].x() * self.zoom_factor, note["pos"].y() * self.zoom_factor)
-            self._draw_note_callout(painter, pt, note["text"])
+            self._draw_note_callout(painter, pt, note, is_selected=False)
             
         # 4. Draw error badges
         for err in self.error_markers:
@@ -365,10 +417,11 @@ class InteractiveChartWidget(QLabel):
             for i in range(len(screen_current) - 1):
                 painter.drawLine(screen_current[i], screen_current[i+1])
 
-        # Draw notes
+        # Draw notes (with selection highlight if selected)
         for note in self.notes:
             scr_pt = self.chart_to_screen_coords(note["pos"], x_up, y_up)
-            self._draw_note_callout(painter, scr_pt, note["text"])
+            is_sel = (self.selected_note is not None and self.selected_note.get("id") == note.get("id"))
+            self._draw_note_callout(painter, scr_pt, note, is_selected=is_sel)
 
         # Draw error markers
         for err in self.error_markers:
@@ -389,17 +442,39 @@ class InteractiveChartWidget(QLabel):
             widget_size = self.size()
             center_x = max(0, (widget_size.width() - sz_up.width()) / 2) if self.pixmap_updated else 0
             center_y = max(0, (widget_size.height() - sz_up.height()) / 2) if self.pixmap_updated else 0
-            local_pt = self.screen_to_chart_coords(QPointF(event.pos()), center_x, center_y)
+            screen_pos = QPointF(event.pos())
+            local_pt = self.screen_to_chart_coords(screen_pos, center_x, center_y)
 
+            # 1. Mode check for creating note
             if getattr(self, 'note_mode_enabled', False):
                 self.note_point_selected.emit(local_pt)
                 return
+            # 2. Mode check for creating error
             elif getattr(self, 'error_mode_enabled', False):
                 self.error_point_selected.emit(local_pt)
                 return
+            # 3. Drawing mode
             elif self.drawing_mode:
                 self.current_stroke = [local_pt]
-            elif self.drag_mode_enabled:
+                return
+
+            # 4. Check if clicking on an existing note to MOVE / SELECT it!
+            hit_note = self.hit_test_note(screen_pos)
+            if hit_note:
+                self.selected_note = hit_note
+                self.is_dragging_note = True
+                self.note_drag_offset = hit_note["pos"] - local_pt
+                self.setCursor(Qt.ClosedHandCursor)
+                self.note_selected.emit(hit_note.get("id", ""))
+                self.update()
+                return
+            else:
+                if self.selected_note:
+                    self.selected_note = None
+                    self.note_selected.emit("")
+                    self.update()
+
+            if self.drag_mode_enabled:
                 self.dragging = True
                 self.drag_button = Qt.LeftButton
                 self.last_mouse_pos = event.pos()
@@ -410,12 +485,24 @@ class InteractiveChartWidget(QLabel):
             self.last_mouse_pos = event.pos()
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        screen_pos = QPointF(event.pos())
+        sz_up = self.pixmap_updated.size() * self.zoom_factor if self.pixmap_updated else 1
+        widget_size = self.size()
+        center_x = max(0, (widget_size.width() - sz_up.width()) / 2) if self.pixmap_updated else 0
+        center_y = max(0, (widget_size.height() - sz_up.height()) / 2) if self.pixmap_updated else 0
+        local_pt = self.screen_to_chart_coords(screen_pos, center_x, center_y)
+
+        # Note movement drag
+        if getattr(self, 'is_dragging_note', False) and self.selected_note:
+            new_pos = local_pt + self.note_drag_offset
+            if self.pixmap_updated:
+                new_pos.setX(max(10.0, min(float(self.pixmap_updated.width() - 10), new_pos.x())))
+                new_pos.setY(max(10.0, min(float(self.pixmap_updated.height() - 10), new_pos.y())))
+            self.selected_note["pos"] = new_pos
+            self.update()
+            return
+
         if self.drawing_mode and (event.buttons() & Qt.LeftButton) and self.pixmap_updated:
-            sz_up = self.pixmap_updated.size() * self.zoom_factor
-            widget_size = self.size()
-            center_x = max(0, (widget_size.width() - sz_up.width()) / 2)
-            center_y = max(0, (widget_size.height() - sz_up.height()) / 2)
-            local_pt = self.screen_to_chart_coords(QPointF(event.pos()), center_x, center_y)
             self.current_stroke.append(local_pt)
             self.update()
         elif self.dragging and self.drag_mode_enabled:
@@ -426,12 +513,24 @@ class InteractiveChartWidget(QLabel):
                 self.offset_old += scaled_delta
                 self.update()
             elif self.drag_button == Qt.RightButton:
-                # Right-click drag rotates smoothly
                 self.rotation_old = (self.rotation_old + delta.x() * 0.15) % 360.0
                 self.update()
                 self.rotation_changed.emit(self.rotation_old)
+        else:
+            # Hover cursor change for notes
+            if not self.drawing_mode and not getattr(self, 'note_mode_enabled', False) and not getattr(self, 'error_mode_enabled', False) and not self.drag_mode_enabled:
+                hit_note = self.hit_test_note(screen_pos)
+                if hit_note:
+                    self.setCursor(Qt.OpenHandCursor)
+                else:
+                    self.setCursor(Qt.ArrowCursor)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
+        if getattr(self, 'is_dragging_note', False):
+            self.is_dragging_note = False
+            self.setCursor(Qt.OpenHandCursor if self.selected_note else Qt.ArrowCursor)
+            self.update()
+            return
         if event.button() == Qt.LeftButton:
             if self.drawing_mode and self.current_stroke:
                 self.strokes.append(list(self.current_stroke))
@@ -440,6 +539,25 @@ class InteractiveChartWidget(QLabel):
                 self.drawing_added.emit()
         self.dragging = False
         self.drag_button = None
+
+    def contextMenuEvent(self, event):
+        screen_pos = QPointF(event.pos())
+        hit_note = self.hit_test_note(screen_pos)
+        if hit_note:
+            from PySide6.QtWidgets import QMenu
+            menu = QMenu(self)
+            action_del = menu.addAction(f"Delete Note {hit_note.get('id', '')}")
+            action_edit = menu.addAction(f"Edit Note {hit_note.get('id', '')}")
+            selected_action = menu.exec(event.globalPos())
+            parent_tab = self.window().tab_comparison if hasattr(self.window(), 'tab_comparison') else None
+            if parent_tab:
+                if selected_action == action_del:
+                    parent_tab.delete_note_by_id(hit_note["id"])
+                elif selected_action == action_edit:
+                    parent_tab.edit_note_by_id(hit_note["id"])
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
 
 class ComparisonTab(QWidget):
@@ -570,6 +688,13 @@ class ComparisonTab(QWidget):
         self.btn_note.clicked.connect(self.toggle_note_mode)
         toolbar_layout.addWidget(self.btn_note)
 
+        self.btn_remove_note = QPushButton("Remove Note")
+        self.btn_remove_note.setToolTip("Remove selected note from chart and log, or choose one to remove.")
+        self.btn_remove_note.setEnabled(False)
+        self.btn_remove_note.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        self.btn_remove_note.clicked.connect(self.remove_selected_note)
+        toolbar_layout.addWidget(self.btn_remove_note)
+
         self.btn_pin_error = QPushButton("Record Error: OFF")
         self.btn_pin_error.setToolTip("Click to toggle Record Error Mode, then click on the chart to log and pin a discrepancy.")
         self.btn_pin_error.setEnabled(False)
@@ -627,6 +752,7 @@ class ComparisonTab(QWidget):
         self.chart_display.rotation_changed.connect(self.on_rotation_changed)
         self.chart_display.note_point_selected.connect(self.on_note_point_selected)
         self.chart_display.error_point_selected.connect(self.on_error_point_selected)
+        self.chart_display.note_selected.connect(self.on_note_selected_changed)
         self.scroll_area.setWidget(self.chart_display)
         layout.addWidget(self.scroll_area)
 
@@ -789,6 +915,7 @@ class ComparisonTab(QWidget):
         self.btn_rotate_90.setEnabled(True)
         self.btn_draw.setEnabled(True)
         self.btn_note.setEnabled(True)
+        self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
         self.btn_pin_error.setEnabled(True)
         self.btn_clear_draw.setEnabled(True)
         
@@ -828,6 +955,8 @@ class ComparisonTab(QWidget):
         self.lbl_angle.setText("Angle: 0.0°")
         self.btn_draw.setEnabled(False)
         self.btn_note.setEnabled(False)
+        self.btn_remove_note.setEnabled(False)
+        self.btn_remove_note.setText("Remove Note")
         self.btn_pin_error.setEnabled(False)
         self.btn_clear_draw.setEnabled(False)
         self.btn_save_annotated.setEnabled(False)
@@ -856,6 +985,15 @@ class ComparisonTab(QWidget):
 
     def on_opacity_changed(self, value):
         self.chart_display.set_opacity(value / 100.0)
+
+    def on_note_selected_changed(self, note_id: str):
+        """Updates Remove Note button when user clicks a note on chart."""
+        if note_id:
+            self.btn_remove_note.setEnabled(True)
+            self.btn_remove_note.setText(f"Remove Note ({note_id})")
+        else:
+            self.btn_remove_note.setText("Remove Note")
+            self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
 
     def set_active_tool_mode(self, mode_name: str):
         """Unified mode controller ensuring tool mutually exclusive states."""
@@ -912,46 +1050,89 @@ class ComparisonTab(QWidget):
             self.btn_pin_error.setStyleSheet("")
             self.float_btn_error.setChecked(False)
 
-    def toggle_drag_mode(self):
+    def toggle_drag_mode(self, *args):
         new_mode = "none" if self.chart_display.drag_mode_enabled else "drag"
         self.set_active_tool_mode(new_mode)
 
-    def toggle_drawing_mode(self):
+    def toggle_drawing_mode(self, *args):
         new_mode = "none" if self.chart_display.drawing_mode else "draw"
         self.set_active_tool_mode(new_mode)
 
-    def toggle_note_mode(self, force_off=False):
-        if force_off:
-            new_mode = "none"
-        else:
-            new_mode = "none" if self.chart_display.note_mode_enabled else "note"
+    def toggle_note_mode(self, *args, **kwargs):
+        """Item 1: Correctly toggles Note mode whether called from button click or code."""
+        new_mode = "none" if self.chart_display.note_mode_enabled else "note"
         self.set_active_tool_mode(new_mode)
 
-    def toggle_error_pin_mode(self, force_off=False):
-        if force_off:
-            new_mode = "none"
-        else:
-            new_mode = "none" if self.chart_display.error_mode_enabled else "error"
+    def disable_note_mode(self):
+        """Turns off Note mode and restores normal cursor."""
+        self.set_active_tool_mode("none")
+
+    def toggle_error_pin_mode(self, *args, **kwargs):
+        """Item 1: Correctly toggles Record Error mode whether called from button click or code."""
+        new_mode = "none" if self.chart_display.error_mode_enabled else "error"
         self.set_active_tool_mode(new_mode)
+
+    def disable_error_pin_mode(self):
+        """Turns off Record Error mode and restores normal cursor."""
+        self.set_active_tool_mode("none")
 
     def on_note_point_selected(self, pt: QPointF):
-        """Places a text note callout at clicked chart coordinates."""
+        """Places a text note callout at clicked chart coordinates and registers in Errors tab (Item 4)."""
+        parent_win = self.window()
+        tab_errors = getattr(parent_win, 'tab_errors', None)
+        note_id = tab_errors.get_next_note_id() if tab_errors else "NT-001"
+
+        chart_name = ""
+        if self.path_updated:
+            chart_name = self.path_updated.replace('\\', '/').split('/')[-1]
+
         text, ok = QInputDialog.getMultiLineText(
-            self, "Add Chart Note", 
-            "Enter note description or annotation to place on the chart:", ""
+            self, f"Add Chart Note [{note_id}]", 
+            f"Enter note description or annotation to place on the chart (ID: {note_id}):", ""
         )
         if ok and text.strip():
-            self.chart_display.notes.append({"pos": pt, "text": text.strip()})
+            note_text = text.strip()
+            note_obj = {
+                "id": note_id,
+                "pos": pt,
+                "text": note_text,
+                "chart": chart_name
+            }
+            self.chart_display.notes.append(note_obj)
+            self.chart_display.selected_note = note_obj
             self.chart_display.update()
             self.btn_save_annotated.setEnabled(True)
-        self.toggle_note_mode(force_off=True)
+            self.btn_remove_note.setEnabled(True)
+            self.btn_remove_note.setText(f"Remove Note ({note_id})")
+
+            # Item 4: List in Errors tab with ID NT-00x, Type N/A, Severity N/A
+            if tab_errors:
+                new_note_err = ErrorItem(
+                    error_id=note_id,
+                    err_type="N/A",
+                    description=note_text,
+                    chart=chart_name,
+                    severity="N/A",
+                    comments="Chart Note"
+                )
+                tab_errors.errors_list.append(new_note_err)
+                tab_errors.populate_table()
+                tab_errors.btn_edit.setEnabled(True)
+                tab_errors.btn_delete.setEnabled(True)
+                tab_errors.error_added.emit()
+
+            tab_report = getattr(parent_win, 'tab_report', None)
+            if tab_report:
+                tab_report.update_summary_metrics()
+
+        self.disable_note_mode()
 
     def on_error_point_selected(self, pt: QPointF):
         """Requirement 6: Opens Add Error dialog, saves to Errors tab, and pins Error ID badge to chart."""
         parent_win = self.window()
         tab_errors = getattr(parent_win, 'tab_errors', None)
         if not tab_errors:
-            self.toggle_error_pin_mode(force_off=True)
+            self.disable_error_pin_mode()
             return
 
         chart_name = ""
@@ -991,7 +1172,84 @@ class ComparisonTab(QWidget):
                 if tab_report:
                     tab_report.update_summary_metrics()
 
-        self.toggle_error_pin_mode(force_off=True)
+        self.disable_error_pin_mode()
+
+    def remove_selected_note(self):
+        """Item 3: Remove selected note or prompt to select which note to remove one by one."""
+        if not self.chart_display.notes:
+            QMessageBox.information(self, "No Notes", "There are no notes on the chart to remove.")
+            return
+
+        note_to_remove = self.chart_display.selected_note
+        if not note_to_remove:
+            items = [f"{n.get('id', 'NT')}: {n.get('text', '')[:40]}" for n in self.chart_display.notes]
+            chosen, ok = QInputDialog.getItem(
+                self, "Select Note to Remove", "Choose a note to remove:", items, 0, False
+            )
+            if ok and chosen:
+                chosen_id = chosen.split(":")[0].strip()
+                for n in self.chart_display.notes:
+                    if n.get("id") == chosen_id:
+                        note_to_remove = n
+                        break
+
+        if note_to_remove:
+            note_id = note_to_remove.get("id", "")
+            self.delete_note_by_id(note_id)
+
+    def delete_note_by_id(self, note_id: str, prompt_confirmation: bool = True):
+        """Removes a note by ID from chart and errors list."""
+        if prompt_confirmation:
+            confirm = QMessageBox.question(
+                self, "Confirm Remove Note",
+                f"Are you sure you want to remove note {note_id}?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+        self.chart_display.notes = [n for n in self.chart_display.notes if n.get("id") != note_id]
+        if self.chart_display.selected_note and self.chart_display.selected_note.get("id") == note_id:
+            self.chart_display.selected_note = None
+        self.chart_display.update()
+
+        parent_win = self.window()
+        tab_errors = getattr(parent_win, 'tab_errors', None)
+        if tab_errors:
+            tab_errors.errors_list = [e for e in tab_errors.errors_list if e.id != note_id]
+            tab_errors.populate_table()
+            tab_errors.btn_edit.setEnabled(len(tab_errors.errors_list) > 0)
+            tab_errors.btn_delete.setEnabled(len(tab_errors.errors_list) > 0)
+
+        tab_report = getattr(parent_win, 'tab_report', None)
+        if tab_report:
+            tab_report.update_summary_metrics()
+
+        self.btn_remove_note.setText("Remove Note")
+        self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
+        if prompt_confirmation:
+            QMessageBox.information(self, "Success", f"Note {note_id} has been removed.")
+
+    def edit_note_by_id(self, note_id: str):
+        """Edits note text by ID."""
+        target_note = next((n for n in self.chart_display.notes if n.get("id") == note_id), None)
+        if not target_note:
+            return
+        new_text, ok = QInputDialog.getMultiLineText(
+            self, f"Edit Note [{note_id}]", "Update note text:", target_note.get("text", "")
+        )
+        if ok and new_text.strip():
+            target_note["text"] = new_text.strip()
+            self.chart_display.update()
+
+            parent_win = self.window()
+            tab_errors = getattr(parent_win, 'tab_errors', None)
+            if tab_errors:
+                for e in tab_errors.errors_list:
+                    if e.id == note_id:
+                        e.description = new_text.strip()
+                        break
+                tab_errors.populate_table()
 
     def set_view_mode(self, mode):
         self.flicker_manager.pause()

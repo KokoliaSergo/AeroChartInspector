@@ -102,17 +102,18 @@ class ReportGenerator:
 
             # 3. Review summary section
             story.append(Paragraph("Review Summary", heading_style))
-            total_errors = len(errors_list)
+            total_errors = sum(1 for e in errors_list if not e.id.startswith("NT-"))
+            total_notes = sum(1 for e in errors_list if e.id.startswith("NT-"))
             critical = sum(1 for e in errors_list if e.severity == "Critical")
             major = sum(1 for e in errors_list if e.severity == "Major")
             minor = sum(1 for e in errors_list if e.severity == "Minor")
             obs = sum(1 for e in errors_list if e.severity == "Observation")
 
             summary_data = [
-                ["Total Errors", "Critical", "Major", "Minor", "Observations"],
-                [str(total_errors), str(critical), str(major), str(minor), str(obs)]
+                ["Total Errors", "Notes", "Critical", "Major", "Minor", "Observations"],
+                [str(total_errors), str(total_notes), str(critical), str(major), str(minor), str(obs)]
             ]
-            summary_table = Table(summary_data, colWidths=[108, 108, 108, 108, 108])
+            summary_table = Table(summary_data, colWidths=[90, 90, 90, 90, 90, 90])
             summary_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284C7')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
@@ -127,9 +128,12 @@ class ReportGenerator:
             story.append(summary_table)
             story.append(Spacer(1, 15))
 
-            # 4. Recorded error(s) log section (including comments)
+            # 4. Recorded error(s) and note(s) log section
+            errors_only = [e for e in errors_list if not e.id.startswith("NT-")]
+            notes_only = [e for e in errors_list if e.id.startswith("NT-")]
+
             story.append(Paragraph("Recorded Error(s) Log", heading_style))
-            if errors_list:
+            if errors_only:
                 err_table_data = [[
                     Paragraph("ID", table_header_style),
                     Paragraph("Type", table_header_style),
@@ -137,7 +141,7 @@ class ReportGenerator:
                     Paragraph("Chart", table_header_style),
                     Paragraph("Description & Comments", table_header_style)
                 ]]
-                for err in errors_list:
+                for err in errors_only:
                     desc_comments = f"<b>Desc:</b> {err.description}"
                     if err.comments:
                         desc_comments += f"<br/><font color='#64748B'><b>Comments:</b> {err.comments}</font>"
@@ -164,6 +168,38 @@ class ReportGenerator:
                 story.append(err_table)
             else:
                 story.append(Paragraph("No errors recorded during this review session.", body_style))
+
+            if notes_only:
+                story.append(Spacer(1, 12))
+                story.append(Paragraph("Chart Note(s) Log", heading_style))
+                note_table_data = [[
+                    Paragraph("ID", table_header_style),
+                    Paragraph("Type", table_header_style),
+                    Paragraph("Severity", table_header_style),
+                    Paragraph("Chart", table_header_style),
+                    Paragraph("Note Content", table_header_style)
+                ]]
+                for nt in notes_only:
+                    note_table_data.append([
+                        Paragraph(nt.id, body_style),
+                        Paragraph("N/A", body_style),
+                        Paragraph("N/A", body_style),
+                        Paragraph(nt.chart, body_style),
+                        Paragraph(nt.description, body_style)
+                    ])
+                
+                note_table = Table(note_table_data, colWidths=[45, 80, 60, 85, 270])
+                note_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284C7')),
+                    ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                    ('TOPPADDING', (0,0), (-1,0), 6),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#F8FAFC')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('PADDING', (0,0), (-1,-1), 5),
+                    ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                ]))
+                story.append(note_table)
             
             story.append(Spacer(1, 15))
 

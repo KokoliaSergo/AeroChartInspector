@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
+    QInputDialog
 )
 from PySide6.QtCore import Qt, Signal
 from app.errors.error_model import ErrorItem
@@ -13,11 +14,11 @@ class ErrorsTab(QWidget):
         super().__init__(parent)
         self.errors_list = []
         self._highest_id_num = 0
+        self._highest_note_num = 0
         self.init_ui()
 
     def get_next_error_id(self) -> str:
         existing_ids = {e.id for e in self.errors_list}
-        # Find maximum existing numerical suffix
         max_existing = 0
         for e in self.errors_list:
             if e.id.startswith("ERR-"):
@@ -32,6 +33,24 @@ class ErrorsTab(QWidget):
             candidate += 1
         self._highest_id_num = candidate
         return f"ERR-{candidate:03d}"
+
+    def get_next_note_id(self) -> str:
+        """Sequential ID generator for chart notes NT-001, NT-002, etc."""
+        existing_ids = {e.id for e in self.errors_list}
+        max_existing = 0
+        for e in self.errors_list:
+            if e.id.startswith("NT-"):
+                try:
+                    num = int(e.id.split("-")[1])
+                    if num > max_existing:
+                        max_existing = num
+                except (ValueError, IndexError):
+                    pass
+        candidate = max(self._highest_note_num, max_existing) + 1
+        while f"NT-{candidate:03d}" in existing_ids:
+            candidate += 1
+        self._highest_note_num = candidate
+        return f"NT-{candidate:03d}"
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -114,6 +133,25 @@ class ErrorsTab(QWidget):
         error_item = self.errors_list[row_idx]
         error_id = error_item.id
 
+        # If editing a Chart Note (NT-xxx)
+        if error_id.startswith("NT-"):
+            new_desc, ok = QInputDialog.getMultiLineText(
+                self, f"Edit Note [{error_id}]", "Update note description:", error_item.description
+            )
+            if ok and new_desc.strip():
+                error_item.description = new_desc.strip()
+                self.populate_table()
+                parent_win = self.window()
+                comp = getattr(parent_win, 'tab_comparison', None)
+                if comp and hasattr(comp, 'chart_display'):
+                    for n in comp.chart_display.notes:
+                        if n.get("id") == error_id:
+                            n["text"] = new_desc.strip()
+                            break
+                    comp.chart_display.update()
+                QMessageBox.information(self, "Success", f"Note {error_id} has been updated.")
+            return
+
         existing_data = {
             "type": error_item.type,
             "description": error_item.description,
@@ -142,7 +180,7 @@ class ErrorsTab(QWidget):
     def delete_selected_error(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
-            QMessageBox.warning(self, "Selection Required", "Please select an error row from the table to delete.")
+            QMessageBox.warning(self, "Selection Required", "Please select an item from the table to delete.")
             return
 
         row_idx = selected_rows[0].row()
@@ -150,29 +188,44 @@ class ErrorsTab(QWidget):
             return
         error_id = self.errors_list[row_idx].id
 
+        item_label = "note" if error_id.startswith("NT-") else "error"
         confirm = QMessageBox.question(
             self, "Confirm Deletion", 
-            f"Are you sure you want to delete error {error_id}?",
+            f"Are you sure you want to delete {item_label} {error_id}?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
         if confirm == QMessageBox.Yes:
-            self.errors_list.pop(row_idx)
+            deleted_item = self.errors_list.pop(row_idx)
             self.populate_table()
             if not self.errors_list:
                 self.btn_edit.setEnabled(False)
                 self.btn_delete.setEnabled(False)
 
-            # Sync with ComparisonTab error markers if any
+            # Sync with ComparisonTab (error markers and notes)
             parent_win = self.window()
             comp = getattr(parent_win, 'tab_comparison', None)
             if comp and hasattr(comp, 'chart_display'):
-                comp.chart_display.error_markers = [
-                    m for m in comp.chart_display.error_markers if m.get("id") != error_id
-                ]
+                if error_id.startswith("NT-"):
+                    comp.chart_display.notes = [
+                        n for n in comp.chart_display.notes if n.get("id") != error_id
+                    ]
+                    if comp.chart_display.selected_note and comp.chart_display.selected_note.get("id") == error_id:
+                        comp.chart_display.selected_note = None
+                    if hasattr(comp, 'btn_remove_note'):
+                        comp.btn_remove_note.setEnabled(len(comp.chart_display.notes) > 0)
+                        comp.btn_remove_note.setText("Remove Note")
+                else:
+                    comp.chart_display.error_markers = [
+                        m for m in comp.chart_display.error_markers if m.get("id") != error_id
+                    ]
                 comp.chart_display.update()
 
-            QMessageBox.information(self, "Success", f"Error {error_id} has been removed.")
+            tab_report = getattr(parent_win, 'tab_report', None)
+            if tab_report:
+                tab_report.update_summary_metrics()
+
+            QMessageBox.information(self, "Success", f"{item_label.capitalize()} {error_id} has been removed.")
 
     def populate_table(self):
         self.table.setRowCount(len(self.errors_list))
