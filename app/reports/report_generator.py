@@ -103,17 +103,16 @@ class ReportGenerator:
             # 3. Review summary section
             story.append(Paragraph("Review Summary", heading_style))
             total_errors = sum(1 for e in errors_list if not e.id.startswith("NT-"))
-            total_notes = sum(1 for e in errors_list if e.id.startswith("NT-"))
             critical = sum(1 for e in errors_list if e.severity == "Critical")
             major = sum(1 for e in errors_list if e.severity == "Major")
             minor = sum(1 for e in errors_list if e.severity == "Minor")
             obs = sum(1 for e in errors_list if e.severity == "Observation")
 
             summary_data = [
-                ["Total Errors", "Notes", "Critical", "Major", "Minor", "Observations"],
-                [str(total_errors), str(total_notes), str(critical), str(major), str(minor), str(obs)]
+                ["Total Errors", "Critical", "Major", "Minor", "Observations"],
+                [str(total_errors), str(critical), str(major), str(minor), str(obs)]
             ]
-            summary_table = Table(summary_data, colWidths=[90, 90, 90, 90, 90, 90])
+            summary_table = Table(summary_data, colWidths=[108, 108, 108, 108, 108])
             summary_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284C7')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),

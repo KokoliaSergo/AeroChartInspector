@@ -87,13 +87,14 @@ class ErrorsTab(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity ⓘ", "Chart", "Description"])
+        self.table.setHorizontalHeaderLabels(["ID", "Type", "Severity", "Chart", "Description"])
         header_sev = self.table.horizontalHeaderItem(2)
         if header_sev:
             header_sev.setToolTip(SEVERITY_TOOLTIP)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSortingEnabled(True)
         layout.addWidget(self.table)
 
     def open_add_error_dialog(self):
@@ -128,28 +129,32 @@ class ErrorsTab(QWidget):
             return
 
         row_idx = selected_rows[0].row()
-        if not (0 <= row_idx < len(self.errors_list)):
+        id_item = self.table.item(row_idx, 0)
+        if not id_item:
             return
-        error_item = self.errors_list[row_idx]
-        error_id = error_item.id
+        error_id = id_item.text()
+        error_item = next((e for e in self.errors_list if e.id == error_id), None)
+        if not error_item:
+            return
 
         # If editing a Chart Note (NT-xxx)
         if error_id.startswith("NT-"):
-            new_desc, ok = QInputDialog.getMultiLineText(
-                self, f"Edit Note [{error_id}]", "Update note description:", error_item.description
-            )
-            if ok and new_desc.strip():
-                error_item.description = new_desc.strip()
-                self.populate_table()
-                parent_win = self.window()
-                comp = getattr(parent_win, 'tab_comparison', None)
-                if comp and hasattr(comp, 'chart_display'):
-                    for n in comp.chart_display.notes:
-                        if n.get("id") == error_id:
-                            n["text"] = new_desc.strip()
-                            break
-                    comp.chart_display.update()
-                QMessageBox.information(self, "Success", f"Note {error_id} has been updated.")
+            from app.gui.comparison_tab import EditNoteDialog
+            dialog = EditNoteDialog(error_id, error_item.description, self)
+            if dialog.exec():
+                new_desc = dialog.get_text()
+                if new_desc:
+                    error_item.description = new_desc
+                    self.populate_table()
+                    parent_win = self.window()
+                    comp = getattr(parent_win, 'tab_comparison', None)
+                    if comp and hasattr(comp, 'chart_display'):
+                        for n in comp.chart_display.notes:
+                            if n.get("id") == error_id:
+                                n["text"] = new_desc
+                                break
+                        comp.chart_display.update()
+                    QMessageBox.information(self, "Success", f"Note {error_id} has been updated.")
             return
 
         existing_data = {
@@ -175,59 +180,83 @@ class ErrorsTab(QWidget):
                 error_item.severity = data["severity"]
                 error_item.comments = data["comments"]
                 self.populate_table()
+                
+                # Sync with ComparisonTab error markers if present
+                comp = getattr(parent_win, 'tab_comparison', None)
+                if comp and hasattr(comp, 'chart_display'):
+                    for m in comp.chart_display.error_markers:
+                        if m.get("id") == error_id:
+                            m["type"] = data["type"]
+                            m["description"] = data["description"]
+                            m["severity"] = data["severity"]
+                            m["chart"] = data["chart"]
+                            m["comments"] = data["comments"]
+                            break
+                    comp.chart_display.update()
+                    
                 QMessageBox.information(self, "Success", f"Error {error_id} has been updated.")
 
-    def delete_selected_error(self):
+    def delete_selected_error(self, prompt_confirmation: bool = True):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.warning(self, "Selection Required", "Please select an item from the table to delete.")
             return
 
         row_idx = selected_rows[0].row()
-        if not (0 <= row_idx < len(self.errors_list)):
+        id_item = self.table.item(row_idx, 0)
+        if not id_item:
             return
-        error_id = self.errors_list[row_idx].id
+        error_id = id_item.text()
+        target_item = next((e for e in self.errors_list if e.id == error_id), None)
+        if not target_item:
+            return
 
         item_label = "note" if error_id.startswith("NT-") else "error"
-        confirm = QMessageBox.question(
-            self, "Confirm Deletion", 
-            f"Are you sure you want to delete {item_label} {error_id}?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        if prompt_confirmation:
+            confirm = QMessageBox.question(
+                self, "Confirm Deletion", 
+                f"Are you sure you want to delete {item_label} {error_id}?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
 
-        if confirm == QMessageBox.Yes:
-            deleted_item = self.errors_list.pop(row_idx)
-            self.populate_table()
-            if not self.errors_list:
-                self.btn_edit.setEnabled(False)
-                self.btn_delete.setEnabled(False)
+        self.errors_list = [e for e in self.errors_list if e.id != error_id]
+        self.populate_table()
+        if not self.errors_list:
+            self.btn_edit.setEnabled(False)
+            self.btn_delete.setEnabled(False)
 
-            # Sync with ComparisonTab (error markers and notes)
-            parent_win = self.window()
-            comp = getattr(parent_win, 'tab_comparison', None)
-            if comp and hasattr(comp, 'chart_display'):
-                if error_id.startswith("NT-"):
-                    comp.chart_display.notes = [
-                        n for n in comp.chart_display.notes if n.get("id") != error_id
-                    ]
-                    if comp.chart_display.selected_note and comp.chart_display.selected_note.get("id") == error_id:
-                        comp.chart_display.selected_note = None
-                    if hasattr(comp, 'btn_remove_note'):
-                        comp.btn_remove_note.setEnabled(len(comp.chart_display.notes) > 0)
-                        comp.btn_remove_note.setText("Remove Note")
-                else:
-                    comp.chart_display.error_markers = [
-                        m for m in comp.chart_display.error_markers if m.get("id") != error_id
-                    ]
-                comp.chart_display.update()
+        # Sync with ComparisonTab (error markers and notes)
+        parent_win = self.window()
+        comp = getattr(parent_win, 'tab_comparison', None)
+        if comp and hasattr(comp, 'chart_display'):
+            if error_id.startswith("NT-"):
+                comp.chart_display.notes = [
+                    n for n in comp.chart_display.notes if n.get("id") != error_id
+                ]
+                if comp.chart_display.selected_note and comp.chart_display.selected_note.get("id") == error_id:
+                    comp.chart_display.selected_note = None
+                if hasattr(comp, 'btn_remove_note'):
+                    comp.btn_remove_note.setEnabled(len(comp.chart_display.notes) > 0)
+                    comp.btn_remove_note.setText("Remove Note")
+            else:
+                comp.chart_display.error_markers = [
+                    m for m in comp.chart_display.error_markers if m.get("id") != error_id
+                ]
+                if getattr(comp.chart_display, 'selected_error', None) and comp.chart_display.selected_error.get("id") == error_id:
+                    comp.chart_display.selected_error = None
+            comp.chart_display.update()
 
-            tab_report = getattr(parent_win, 'tab_report', None)
-            if tab_report:
-                tab_report.update_summary_metrics()
+        tab_report = getattr(parent_win, 'tab_report', None)
+        if tab_report:
+            tab_report.update_summary_metrics()
 
+        if prompt_confirmation:
             QMessageBox.information(self, "Success", f"{item_label.capitalize()} {error_id} has been removed.")
 
     def populate_table(self):
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.errors_list))
         for row, err in enumerate(self.errors_list):
             self.table.setItem(row, 0, QTableWidgetItem(err.id))
@@ -237,3 +266,4 @@ class ErrorsTab(QWidget):
             self.table.setItem(row, 2, item_sev)
             self.table.setItem(row, 3, QTableWidgetItem(err.chart))
             self.table.setItem(row, 4, QTableWidgetItem(err.description))
+        self.table.setSortingEnabled(True)

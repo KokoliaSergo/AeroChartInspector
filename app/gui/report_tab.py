@@ -124,26 +124,46 @@ class ReportTab(QWidget):
         # 2. List of Checked Charts Box
         charts_group = QGroupBox("List of Checked Charts")
         charts_layout = QVBoxLayout()
-        charts_layout.setContentsMargins(12, 12, 12, 12)
+        charts_layout.setContentsMargins(12, 14, 12, 12)
+        charts_layout.setSpacing(10)
         
         self.list_checked_charts = QListWidget()
-        self.list_checked_charts.setMinimumHeight(70)
-        self.list_checked_charts.setMaximumHeight(100)
-        charts_layout.addWidget(self.list_checked_charts)
+        self.list_checked_charts.setMinimumHeight(110)
+        self.list_checked_charts.setStyleSheet("""
+            QListWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px;
+                color: #1E293B;
+                font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 5px 8px;
+                border-bottom: 1px solid #F1F5F9;
+            }
+            QListWidget::item:selected {
+                background-color: #E0F2FE;
+                color: #0284C7;
+                font-weight: bold;
+                border-radius: 4px;
+            }
+        """)
+        charts_layout.addWidget(self.list_checked_charts, 1)
         
         charts_btn_layout = QHBoxLayout()
         btn_add_charts = QPushButton("Add Chart(s)...")
-        btn_add_charts.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        btn_add_charts.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
         btn_add_charts.clicked.connect(self.add_checked_charts)
         
         btn_remove_chart = QPushButton("Remove Selected Chart")
-        btn_remove_chart.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        btn_remove_chart.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
         btn_remove_chart.clicked.connect(self.remove_checked_chart)
         
         charts_btn_layout.addWidget(btn_add_charts)
         charts_btn_layout.addWidget(btn_remove_chart)
         charts_btn_layout.addStretch()
-        charts_layout.addLayout(charts_btn_layout)
+        charts_layout.addLayout(charts_btn_layout, 0)
         
         charts_group.setLayout(charts_layout)
         layout.addWidget(charts_group)
