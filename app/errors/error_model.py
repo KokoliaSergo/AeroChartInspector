@@ -4,7 +4,7 @@ ERROR_TYPES = [
     "Text", "Altitude", "Frequency", "Navaid", "Course / Bearing", 
     "Distance", "Speed", "Procedure", "Route", "Waypoint", 
     "Runway", "Aerodrome", "Obstacle", "Terrain", "Symbol", 
-    "Geometry / Position", "Missing Information", "Incorrect Information", 
+    "Geometry / Position", "Missing Information", 
     "Formatting / Presentation", "Other"
 ]
 

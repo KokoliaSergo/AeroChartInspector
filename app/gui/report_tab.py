@@ -1,10 +1,13 @@
+import re
 from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, 
     QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
-    QDialog, QCalendarWidget, QHBoxLayout, QListWidget, QListWidgetItem
+    QDialog, QCalendarWidget, QHBoxLayout, QListWidget, QListWidgetItem,
+    QScrollArea
 )
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Qt, QSize
+from PySide6.QtGui import QIcon, QPixmap
 from app.reports.report_generator import ReportGenerator
 
 class CalendarDialog(QDialog):
@@ -46,9 +49,11 @@ class ReportTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
         
         layout.addWidget(QLabel("<b>AeroChart Inspector - Review Summary & PDF Report</b>"))
         
+        # 1. Review & Log Metadata Group
         qc_group = QGroupBox("Review & Log Metadata")
         qc_layout = QFormLayout()
         
@@ -74,11 +79,12 @@ class ReportTab(QWidget):
         qc_group.setLayout(qc_layout)
         layout.addWidget(qc_group)
 
-        # --- List of Checked Charts Box ---
+        # 2. List of Checked Charts Box
         charts_group = QGroupBox("List of Checked Charts")
         charts_layout = QVBoxLayout()
         
         self.list_checked_charts = QListWidget()
+        self.list_checked_charts.setMaximumHeight(100)
         charts_layout.addWidget(self.list_checked_charts)
         
         charts_btn_layout = QHBoxLayout()
@@ -86,7 +92,7 @@ class ReportTab(QWidget):
         btn_add_charts.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
         btn_add_charts.clicked.connect(self.add_checked_charts)
         
-        btn_remove_chart = QPushButton("Remove Selected")
+        btn_remove_chart = QPushButton("Remove Selected Chart")
         btn_remove_chart.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
         btn_remove_chart.clicked.connect(self.remove_checked_chart)
         
@@ -98,20 +104,74 @@ class ReportTab(QWidget):
         charts_group.setLayout(charts_layout)
         layout.addWidget(charts_group)
 
-        # Summary Display Group
+        # 3. Captured Visual Evidence Screenshots (Requirement 5)
+        evidence_group = QGroupBox("Captured Visual Evidence (Annotated Chart Screenshots)")
+        evidence_layout = QVBoxLayout()
+        
+        self.list_evidence = QListWidget()
+        self.list_evidence.setIconSize(QSize(90, 60))
+        self.list_evidence.setMaximumHeight(130)
+        self.list_evidence.itemDoubleClicked.connect(self.preview_selected_evidence)
+        evidence_layout.addWidget(self.list_evidence)
+        
+        evidence_btn_layout = QHBoxLayout()
+        btn_preview_evidence = QPushButton("Preview Selected Evidence")
+        btn_preview_evidence.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        btn_preview_evidence.clicked.connect(self.preview_selected_evidence)
+        
+        btn_remove_evidence = QPushButton("Remove Selected Evidence")
+        btn_remove_evidence.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        btn_remove_evidence.clicked.connect(self.remove_selected_evidence)
+        
+        self.lbl_evidence_count = QLabel("0 screenshot(s) available")
+        self.lbl_evidence_count.setStyleSheet("color: #475569; font-weight: bold; padding-left: 10px;")
+        
+        evidence_btn_layout.addWidget(btn_preview_evidence)
+        evidence_btn_layout.addWidget(btn_remove_evidence)
+        evidence_btn_layout.addWidget(self.lbl_evidence_count)
+        evidence_btn_layout.addStretch()
+        evidence_layout.addLayout(evidence_btn_layout)
+        
+        evidence_group.setLayout(evidence_layout)
+        layout.addWidget(evidence_group)
+
+        # 4. Summary Display Group
         summary_group = QGroupBox("Validation Review Summary")
         summary_layout = QVBoxLayout()
         self.summary_text = QTextEdit()
         self.summary_text.setReadOnly(True)
-        self.update_summary_metrics()
+        self.summary_text.setMaximumHeight(110)
         summary_layout.addWidget(self.summary_text)
         summary_group.setLayout(summary_layout)
         layout.addWidget(summary_group)
         
+        # 5. Generate PDF Report button (Requirement 9: Green styled button)
         self.btn_generate = QPushButton("Generate PDF Report")
         self.btn_generate.setEnabled(False)
+        self.btn_generate.setStyleSheet("""
+            QPushButton {
+                background-color: #10B981;
+                color: #FFFFFF;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+            QPushButton:pressed {
+                background-color: #047857;
+            }
+            QPushButton:disabled {
+                background-color: #94A3B8;
+                color: #E2E8F0;
+            }
+        """)
         self.btn_generate.clicked.connect(self.generate_report)
         layout.addWidget(self.btn_generate)
+
+        self.update_summary_metrics()
 
     def add_checked_charts(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Checked Charts", "", "PDF Files (*.pdf)")
@@ -136,8 +196,86 @@ class ReportTab(QWidget):
             
         self.update_summary_metrics()
 
+    def refresh_evidence_list(self):
+        """Populates the screenshots list from the Comparison tab's saved evidence."""
+        self.list_evidence.clear()
+        parent_win = self.window()
+        comp = getattr(parent_win, 'tab_comparison', None)
+        if not comp or not hasattr(comp, 'saved_annotated_pixmaps'):
+            self.lbl_evidence_count.setText("0 screenshot(s) available")
+            return
+
+        pixmaps = comp.saved_annotated_pixmaps
+        for idx, pix in enumerate(pixmaps):
+            item = QListWidgetItem()
+            thumb = pix.scaled(90, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            item.setIcon(QIcon(thumb))
+            item.setText(f"Evidence #{idx + 1} — Annotated Chart ({pix.width()} × {pix.height()} px)")
+            self.list_evidence.addItem(item)
+
+        self.lbl_evidence_count.setText(f"{len(pixmaps)} screenshot(s) available for report")
+
+    def remove_selected_evidence(self):
+        """Requirement 5: Allows removing unnecessary comparison screenshots before report generation."""
+        selected_items = self.list_evidence.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Selection Required", "Please select an evidence screenshot from the list to remove.")
+            return
+
+        parent_win = self.window()
+        comp = getattr(parent_win, 'tab_comparison', None)
+        if not comp or not hasattr(comp, 'saved_annotated_pixmaps'):
+            return
+
+        selected_rows = [self.list_evidence.row(item) for item in selected_items]
+        selected_rows.sort(reverse=True)
+        for row in selected_rows:
+            if 0 <= row < len(comp.saved_annotated_pixmaps):
+                comp.saved_annotated_pixmaps.pop(row)
+
+        self.refresh_evidence_list()
+        self.update_summary_metrics()
+        QMessageBox.information(self, "Removed", "Selected evidence screenshot(s) removed successfully.")
+
+    def preview_selected_evidence(self, item=None):
+        """Opens a high-resolution preview dialog of the selected annotated screenshot."""
+        if item is None or isinstance(item, bool):
+            selected_items = self.list_evidence.selectedItems()
+            if not selected_items:
+                QMessageBox.warning(self, "Selection Required", "Please select an evidence screenshot to preview.")
+                return
+            item = selected_items[0]
+
+        row = self.list_evidence.row(item)
+        parent_win = self.window()
+        comp = getattr(parent_win, 'tab_comparison', None)
+        if not comp or not hasattr(comp, 'saved_annotated_pixmaps'):
+            return
+        if row < 0 or row >= len(comp.saved_annotated_pixmaps):
+            return
+
+        pix = comp.saved_annotated_pixmaps[row]
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Evidence #{row + 1} Preview ({pix.width()} × {pix.height()} px)")
+        dialog.resize(850, 650)
+        d_layout = QVBoxLayout(dialog)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        lbl_img = QLabel()
+        lbl_img.setAlignment(Qt.AlignCenter)
+        lbl_img.setPixmap(pix)
+        scroll.setWidget(lbl_img)
+        d_layout.addWidget(scroll)
+
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dialog.accept)
+        d_layout.addWidget(btn_close)
+        dialog.exec()
+
     def showEvent(self, event):
         super().showEvent(event)
+        self.refresh_evidence_list()
         self.update_summary_metrics()
 
     def update_summary_metrics(self):
@@ -198,7 +336,12 @@ class ReportTab(QWidget):
         if hasattr(parent_win, 'tab_comparison') and parent_win.tab_comparison.path_updated:
             primary_chart = parent_win.tab_comparison.path_updated.split('/')[-1].split('\\')[-1]
 
-        filename, _ = QFileDialog.getSaveFileName(self, "Save PDF Report", "Aeronautical_Chart_Validation_Report.pdf", "PDF Files (*.pdf)")
+        # Requirement 8: Implement filename logic: LogSheetNumber_NameSurname.pdf
+        clean_log = re.sub(r'[\\/*?:"<>|,\s]+', '_', log_sheets).strip('_') if log_sheets and log_sheets != "N/A" else "LogSheet"
+        clean_name = "".join(re.sub(r'[\\/*?:"<>|]', '', inspector_name).split()) if inspector_name else "Inspector"
+        suggested_filename = f"{clean_log}_{clean_name}.pdf"
+
+        filename, _ = QFileDialog.getSaveFileName(self, "Save PDF Report", suggested_filename, "PDF Files (*.pdf)")
         if filename:
             comp = parent_win.tab_comparison
             err_tab = parent_win.tab_errors

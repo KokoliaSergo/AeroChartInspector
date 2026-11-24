@@ -12,7 +12,26 @@ class ErrorsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.errors_list = []
+        self._highest_id_num = 0
         self.init_ui()
+
+    def get_next_error_id(self) -> str:
+        existing_ids = {e.id for e in self.errors_list}
+        # Find maximum existing numerical suffix
+        max_existing = 0
+        for e in self.errors_list:
+            if e.id.startswith("ERR-"):
+                try:
+                    num = int(e.id.split("-")[1])
+                    if num > max_existing:
+                        max_existing = num
+                except (ValueError, IndexError):
+                    pass
+        candidate = max(self._highest_id_num, max_existing) + 1
+        while f"ERR-{candidate:03d}" in existing_ids:
+            candidate += 1
+        self._highest_id_num = candidate
+        return f"ERR-{candidate:03d}"
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -55,7 +74,7 @@ class ErrorsTab(QWidget):
         if hasattr(parent_win, 'tab_comparison') and parent_win.tab_comparison.path_updated:
             default_chart = parent_win.tab_comparison.path_updated.split('/')[-1].split('\\')[-1]
 
-        error_id_str = f"ERR-{len(self.errors_list) + 1:03d}"
+        error_id_str = self.get_next_error_id()
         dialog = AddErrorDialog(error_id_str, None, default_chart, self)
         if dialog.exec():
             data = dialog.error_data
@@ -81,11 +100,10 @@ class ErrorsTab(QWidget):
             return
 
         row_idx = selected_rows[0].row()
-        error_id = self.table.item(row_idx, 0).text()
-
-        error_item = next((e for e in self.errors_list if e.id == error_id), None)
-        if not error_item:
+        if not (0 <= row_idx < len(self.errors_list)):
             return
+        error_item = self.errors_list[row_idx]
+        error_id = error_item.id
 
         existing_data = {
             "type": error_item.type,
@@ -119,7 +137,9 @@ class ErrorsTab(QWidget):
             return
 
         row_idx = selected_rows[0].row()
-        error_id = self.table.item(row_idx, 0).text()
+        if not (0 <= row_idx < len(self.errors_list)):
+            return
+        error_id = self.errors_list[row_idx].id
 
         confirm = QMessageBox.question(
             self, "Confirm Deletion", 
@@ -128,7 +148,7 @@ class ErrorsTab(QWidget):
         )
 
         if confirm == QMessageBox.Yes:
-            self.errors_list = [e for e in self.errors_list if e.id != error_id]
+            self.errors_list.pop(row_idx)
             self.populate_table()
             if not self.errors_list:
                 self.btn_edit.setEnabled(False)

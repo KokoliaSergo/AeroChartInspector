@@ -1,8 +1,35 @@
 import os
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# Register Unicode TrueType font supporting Georgian (Sylfaen is native on Windows)
+FONT_NAME = "Helvetica"
+FONT_NAME_BOLD = "Helvetica-Bold"
+
+font_candidates = [
+    ("Sylfaen", "C:/Windows/Fonts/sylfaen.ttf", None),
+    ("ArialUnicode", "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
+    ("SegoeUI", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf")
+]
+
+for name, regular_path, bold_path in font_candidates:
+    if os.path.exists(regular_path):
+        try:
+            pdfmetrics.registerFont(TTFont(name, regular_path))
+            FONT_NAME = name
+            if bold_path and os.path.exists(bold_path):
+                bold_name = f"{name}-Bold"
+                pdfmetrics.registerFont(TTFont(bold_name, bold_path))
+                FONT_NAME_BOLD = bold_name
+            else:
+                FONT_NAME_BOLD = name
+            break
+        except Exception:
+            pass
 
 class ReportGenerator:
     @staticmethod
@@ -13,19 +40,19 @@ class ReportGenerator:
             styles = getSampleStyleSheet()
 
             title_style = ParagraphStyle(
-                'ReportTitle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0A192F'), spaceAfter=4
+                'ReportTitle', parent=styles['Heading1'], fontName=FONT_NAME_BOLD, fontSize=18, textColor=colors.HexColor('#0A192F'), spaceAfter=4, leading=22
             )
             subtitle_style = ParagraphStyle(
-                'ReportSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#0284C7'), spaceAfter=12
+                'ReportSubtitle', parent=styles['Normal'], fontName=FONT_NAME, fontSize=10, textColor=colors.HexColor('#0284C7'), spaceAfter=12, leading=14
             )
             heading_style = ParagraphStyle(
-                'SectionHeading', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#1E293B'), spaceBefore=10, spaceAfter=6
+                'SectionHeading', parent=styles['Heading2'], fontName=FONT_NAME_BOLD, fontSize=12, textColor=colors.HexColor('#1E293B'), spaceBefore=10, spaceAfter=6, leading=16
             )
             body_style = ParagraphStyle(
-                'ReportBody', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#0F172A'), spaceAfter=2, leading=12
+                'ReportBody', parent=styles['Normal'], fontName=FONT_NAME, fontSize=9, textColor=colors.HexColor('#0F172A'), spaceAfter=2, leading=13
             )
             table_header_style = ParagraphStyle(
-                'TableHeader', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName='Helvetica-Bold'
+                'TableHeader', parent=styles['Normal'], fontName=FONT_NAME_BOLD, fontSize=9, textColor=colors.white, leading=13
             )
 
             story.append(Paragraph("Aeronautical chart validation report", title_style))
@@ -51,6 +78,7 @@ class ReportGenerator:
                 ('PADDING', (0,0), (-1,-1), 8),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                 ('SPAN', (0, 1), (1, 1)),
+                ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
             ]))
             story.append(meta_table)
             story.append(Spacer(1, 10))
@@ -67,6 +95,7 @@ class ReportGenerator:
                 ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
                 ('PADDING', (0,0), (-1,-1), 8),
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
             ]))
             story.append(charts_table)
             story.append(Spacer(1, 15))
@@ -88,8 +117,9 @@ class ReportGenerator:
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284C7')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTNAME', (0,0), (-1,0), FONT_NAME_BOLD),
                 ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#F1F5F9')),
+                ('FONTNAME', (0,1), (-1,1), FONT_NAME),
                 ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
                 ('PADDING', (0,0), (-1,-1), 6),
@@ -129,6 +159,7 @@ class ReportGenerator:
                     ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
                     ('PADDING', (0,0), (-1,-1), 5),
+                    ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
                 ]))
                 story.append(err_table)
             else:
@@ -136,22 +167,41 @@ class ReportGenerator:
             
             story.append(Spacer(1, 15))
 
-            # 5. Annotated chart visual evidence section
+            # 5. Annotated chart visual evidence section (Full Page per Screenshot stuck with Evidence#)
             temp_img_paths = []
             if evidence_pixmaps:
-                story.append(Paragraph("Annotated Chart Visual Evidence", heading_style))
                 for idx, pixmap in enumerate(evidence_pixmaps):
                     if pixmap and not pixmap.isNull():
                         temp_img_path = f"temp_evidence_{idx}.png"
                         temp_img_paths.append(temp_img_path)
                         pixmap.save(temp_img_path, "PNG")
                         
-                        img = RLImage(temp_img_path, width=500, height=350)
+                        # Full page per screenshot
+                        story.append(PageBreak())
+                        
+                        # Calculate proportional dimensions to fill whole page (letter: 612x792, margins 40)
+                        max_w = 532.0
+                        max_h = 665.0
+                        aspect = pixmap.width() / max(1, pixmap.height())
+                        
+                        if aspect > (max_w / max_h):
+                            target_w = max_w
+                            target_h = max_w / aspect
+                        else:
+                            target_h = max_h
+                            target_w = max_h * aspect
+                            
+                        img = RLImage(temp_img_path, width=target_w, height=target_h)
                         img.hAlign = 'CENTER'
-                        story.append(Paragraph(f"Evidence #{idx + 1}", body_style))
-                        story.append(Spacer(1, 2))
-                        story.append(img)
-                        story.append(Spacer(1, 10))
+                        
+                        evidence_title = Paragraph(f"<b>Evidence #{idx + 1}</b>", heading_style)
+                        
+                        # Keep heading and image together on the same page
+                        story.append(KeepTogether([
+                            evidence_title,
+                            Spacer(1, 6),
+                            img
+                        ]))
 
             doc.build(story)
             

@@ -10,6 +10,7 @@ from app.comparison.flicker import FlickerManager
 
 class InteractiveChartWidget(QLabel):
     drawing_added = Signal()
+    rotation_changed = Signal(float)
 
     def __init__(self):
         super().__init__()
@@ -25,6 +26,7 @@ class InteractiveChartWidget(QLabel):
         self.active_view = "Both"
         
         self.offset_old = QPointF(0.0, 0.0)
+        self.rotation_old = 0.0
         self.drag_mode_enabled = False
         
         self.drawing_mode = False
@@ -32,25 +34,30 @@ class InteractiveChartWidget(QLabel):
         self.current_stroke = []
         
         self.dragging = False
+        self.drag_button = None
         self.last_mouse_pos = QPoint()
 
     def set_charts(self, pix_updated, pix_old):
         self.pixmap_updated = pix_updated
         self.pixmap_old = pix_old
         self.offset_old = QPointF(0.0, 0.0)
+        self.rotation_old = 0.0
         self.strokes.clear()
         self.update_widget_size()
         self.update()
+        self.rotation_changed.emit(self.rotation_old)
 
     def clear(self):
         self.pixmap_updated = None
         self.pixmap_old = None
         self.offset_old = QPointF(0.0, 0.0)
+        self.rotation_old = 0.0
         self.strokes.clear()
         self.zoom_factor = 1.0
         self.setMinimumSize(700, 700)
         self.resize(700, 700)
         self.update()
+        self.rotation_changed.emit(self.rotation_old)
 
     def update_widget_size(self):
         if self.pixmap_updated:
@@ -74,19 +81,45 @@ class InteractiveChartWidget(QLabel):
         self.active_view = view
         self.update()
 
+    def rotate_old(self, delta_angle: float):
+        self.rotation_old = (self.rotation_old + delta_angle) % 360.0
+        self.update()
+        self.rotation_changed.emit(self.rotation_old)
+
     def reset_alignment(self):
         self.offset_old = QPointF(0.0, 0.0)
+        self.rotation_old = 0.0
         self.update()
+        self.rotation_changed.emit(self.rotation_old)
 
     def clear_drawings(self):
         self.strokes.clear()
         self.update()
 
     def get_annotated_pixmap(self) -> QPixmap:
-        pixmap = QPixmap(self.size())
-        pixmap.fill(Qt.white)
-        self.render(pixmap)
-        return pixmap
+        if not self.pixmap_updated:
+            pixmap = QPixmap(self.size())
+            pixmap.fill(Qt.white)
+            self.render(pixmap)
+            return pixmap
+            
+        full_pixmap = QPixmap(self.size())
+        full_pixmap.fill(Qt.white)
+        self.render(full_pixmap)
+        
+        # Crop to the exact bounding box of the PDF chart (excluding widget background and scroll margins)
+        sz_up = self.pixmap_updated.size() * self.zoom_factor
+        scaled_up = self.pixmap_updated.scaled(sz_up, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        widget_size = self.size()
+        center_x = max(0, int((widget_size.width() - scaled_up.width()) / 2))
+        center_y = max(0, int((widget_size.height() - scaled_up.height()) / 2))
+        
+        from PySide6.QtCore import QRect
+        chart_w = max(1, int(scaled_up.width()))
+        chart_h = max(1, int(scaled_up.height()))
+        chart_rect = QRect(center_x, center_y, chart_w, chart_h)
+        cropped = full_pixmap.copy(chart_rect)
+        return cropped if not cropped.isNull() else full_pixmap
 
     def screen_to_chart_coords(self, screen_pt: QPointF, base_x: float, base_y: float) -> QPointF:
         return QPointF((screen_pt.x() - base_x) / self.zoom_factor, (screen_pt.y() - base_y) / self.zoom_factor)
@@ -122,16 +155,28 @@ class InteractiveChartWidget(QLabel):
             scaled_old = None
             x_old, y_old = x_up, y_up
 
+        def draw_scaled_old(p, opacity=1.0):
+            if not scaled_old:
+                return
+            p.save()
+            if opacity < 1.0:
+                p.setOpacity(opacity)
+            center_x_old = x_old + scaled_old.width() / 2.0
+            center_y_old = y_old + scaled_old.height() / 2.0
+            p.translate(center_x_old, center_y_old)
+            if getattr(self, "rotation_old", 0.0) != 0.0:
+                p.rotate(self.rotation_old)
+            p.drawPixmap(int(-scaled_old.width() / 2.0), int(-scaled_old.height() / 2.0), scaled_old)
+            p.restore()
+
         if self.active_view == "Updated chart":
             painter.drawPixmap(int(x_up), int(y_up), scaled_up)
         elif self.active_view == "Old chart" and scaled_old:
-            painter.drawPixmap(int(x_old), int(y_old), scaled_old)
+            draw_scaled_old(painter, 1.0)
         else:
             painter.drawPixmap(int(x_up), int(y_up), scaled_up)
             if scaled_old:
-                painter.setOpacity(self.opacity_old)
-                painter.drawPixmap(int(x_old), int(y_old), scaled_old)
-                painter.setOpacity(1.0)
+                draw_scaled_old(painter, self.opacity_old)
 
         pen = QPen(QColor(239, 68, 68), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         painter.setPen(pen)
@@ -165,7 +210,13 @@ class InteractiveChartWidget(QLabel):
                 self.current_stroke = [local_pt]
             elif self.drag_mode_enabled:
                 self.dragging = True
+                self.drag_button = Qt.LeftButton
                 self.last_mouse_pos = event.pos()
+        elif event.button() == Qt.RightButton and self.drag_mode_enabled:
+            # Right-click drag rotates Old chart in Drag Mode
+            self.dragging = True
+            self.drag_button = Qt.RightButton
+            self.last_mouse_pos = event.pos()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self.drawing_mode and (event.buttons() & Qt.LeftButton) and self.pixmap_updated:
@@ -179,9 +230,15 @@ class InteractiveChartWidget(QLabel):
         elif self.dragging and self.drag_mode_enabled:
             delta = event.pos() - self.last_mouse_pos
             self.last_mouse_pos = event.pos()
-            scaled_delta = QPointF(delta.x() / self.zoom_factor, delta.y() / self.zoom_factor)
-            self.offset_old += scaled_delta
-            self.update()
+            if self.drag_button == Qt.LeftButton:
+                scaled_delta = QPointF(delta.x() / self.zoom_factor, delta.y() / self.zoom_factor)
+                self.offset_old += scaled_delta
+                self.update()
+            elif self.drag_button == Qt.RightButton:
+                # Right-click drag rotates smoothly
+                self.rotation_old = (self.rotation_old + delta.x() * 0.15) % 360.0
+                self.update()
+                self.rotation_changed.emit(self.rotation_old)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
@@ -190,7 +247,8 @@ class InteractiveChartWidget(QLabel):
                 self.current_stroke.clear()
                 self.update()
                 self.drawing_added.emit()
-            self.dragging = False
+        self.dragging = False
+        self.drag_button = None
 
 
 class ComparisonTab(QWidget):
@@ -247,10 +305,42 @@ class ComparisonTab(QWidget):
         toolbar_layout = QHBoxLayout()
 
         self.btn_toggle_drag = QPushButton("Drag Mode: OFF")
+        self.btn_toggle_drag.setToolTip("Toggle Drag Mode: Left-drag to pan Old chart, Right-drag to rotate Old chart.")
         self.btn_toggle_drag.setEnabled(False)
         self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
         self.btn_toggle_drag.clicked.connect(self.toggle_drag_mode)
         toolbar_layout.addWidget(self.btn_toggle_drag)
+
+        # Requirement 10: Put Reset Alignment right next to Drag Mode button
+        self.btn_reset_align = QPushButton("Reset Alignment")
+        self.btn_reset_align.setEnabled(False)
+        self.btn_reset_align.clicked.connect(self.reset_alignment)
+        toolbar_layout.addWidget(self.btn_reset_align)
+
+        # Requirement 1: Rotation controls for Drag Mode
+        self.btn_rotate_ccw = QPushButton("↺ -1°")
+        self.btn_rotate_ccw.setToolTip("Rotate Old chart 1° counter-clockwise (Drag Mode)")
+        self.btn_rotate_ccw.setEnabled(False)
+        self.btn_rotate_ccw.clicked.connect(lambda: self.chart_display.rotate_old(-1.0))
+        toolbar_layout.addWidget(self.btn_rotate_ccw)
+
+        self.btn_rotate_cw = QPushButton("↻ +1°")
+        self.btn_rotate_cw.setToolTip("Rotate Old chart 1° clockwise (Drag Mode)")
+        self.btn_rotate_cw.setEnabled(False)
+        self.btn_rotate_cw.clicked.connect(lambda: self.chart_display.rotate_old(1.0))
+        toolbar_layout.addWidget(self.btn_rotate_cw)
+
+        self.btn_rotate_90 = QPushButton("⟳ 90°")
+        self.btn_rotate_90.setToolTip("Rotate Old chart 90° clockwise (Drag Mode)")
+        self.btn_rotate_90.setEnabled(False)
+        self.btn_rotate_90.clicked.connect(lambda: self.chart_display.rotate_old(90.0))
+        toolbar_layout.addWidget(self.btn_rotate_90)
+
+        self.lbl_angle = QLabel("Angle: 0.0°")
+        self.lbl_angle.setStyleSheet("color: #475569; font-weight: bold; font-size: 12px; padding-left: 2px;")
+        toolbar_layout.addWidget(self.lbl_angle)
+
+        toolbar_layout.addSpacing(10)
 
         self.btn_flicker = QPushButton("Start Flicker")
         self.btn_flicker.setEnabled(False)
@@ -276,11 +366,6 @@ class ComparisonTab(QWidget):
 
         toolbar_layout.addWidget(self.btn_show_updated)
         toolbar_layout.addWidget(self.btn_show_old)
-
-        self.btn_reset_align = QPushButton("Reset Alignment")
-        self.btn_reset_align.setEnabled(False)
-        self.btn_reset_align.clicked.connect(self.reset_alignment)
-        toolbar_layout.addWidget(self.btn_reset_align)
 
         self.btn_draw = QPushButton("Draw Highlight: OFF")
         self.btn_draw.setEnabled(False)
@@ -313,11 +398,15 @@ class ComparisonTab(QWidget):
         sub_toolbar.addSpacing(20)
         self.label_zoom = QLabel("Zoom: 100%")
         btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(30)
+        btn_zoom_in.setFixedSize(32, 28)
+        btn_zoom_in.setStyleSheet("QPushButton { font-size: 18px; font-weight: bold; padding: 0px; margin: 0px; text-align: center; }")
         btn_zoom_in.clicked.connect(self.zoom_in)
+
         btn_zoom_out = QPushButton("-")
-        btn_zoom_out.setFixedWidth(30)
+        btn_zoom_out.setFixedSize(32, 28)
+        btn_zoom_out.setStyleSheet("QPushButton { font-size: 20px; font-weight: bold; padding: 0px; margin: 0px; text-align: center; }")
         btn_zoom_out.clicked.connect(self.zoom_out)
+
         btn_fit = QPushButton("Fit")
         btn_fit.clicked.connect(self.reset_zoom)
 
@@ -331,6 +420,7 @@ class ComparisonTab(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.chart_display = InteractiveChartWidget()
         self.chart_display.drawing_added.connect(self.on_drawing_added)
+        self.chart_display.rotation_changed.connect(self.on_rotation_changed)
         self.scroll_area.setWidget(self.chart_display)
         layout.addWidget(self.scroll_area)
 
@@ -395,6 +485,9 @@ class ComparisonTab(QWidget):
         self.btn_flicker.setEnabled(True)
         self.btn_reset_align.setEnabled(True)
         self.btn_toggle_drag.setEnabled(True)
+        self.btn_rotate_ccw.setEnabled(True)
+        self.btn_rotate_cw.setEnabled(True)
+        self.btn_rotate_90.setEnabled(True)
         self.btn_draw.setEnabled(True)
         self.btn_clear_draw.setEnabled(True)
         
@@ -420,6 +513,10 @@ class ComparisonTab(QWidget):
         self.btn_reset_align.setEnabled(False)
         self.btn_toggle_drag.setEnabled(False)
         self.btn_toggle_drag.setText("Drag Mode: OFF")
+        self.btn_rotate_ccw.setEnabled(False)
+        self.btn_rotate_cw.setEnabled(False)
+        self.btn_rotate_90.setEnabled(False)
+        self.lbl_angle.setText("Angle: 0.0°")
         self.chart_display.drag_mode_enabled = False
         self.btn_draw.setEnabled(False)
         self.btn_draw.setText("Draw Highlight: OFF")
@@ -431,6 +528,9 @@ class ComparisonTab(QWidget):
         
         self.charts_cleared.emit()
         QMessageBox.information(self, "Reset", "Comparison session cleared. Previously defined error logs remain intact.")
+
+    def on_rotation_changed(self, angle: float):
+        self.lbl_angle.setText(f"Angle: {angle:.1f}°")
 
     def on_opacity_changed(self, value):
         self.chart_display.set_opacity(value / 100.0)

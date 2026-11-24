@@ -101,9 +101,16 @@ QComboBox::drop-down {
 }
 
 QComboBox::down-arrow {
-    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
-    width: 12px;
-    height: 12px;
+    width: 0px;
+    height: 0px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #475569;
+    margin: auto;
+}
+
+QComboBox::down-arrow:hover {
+    border-top-color: #0284C7;
 }
 
 QComboBox::down-arrow:on {
