@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent, QRectF, QRect
 from PySide6.QtGui import (
     QPixmap, QPainter, QPen, QColor, QWheelEvent, QMouseEvent, 
-    QPaintEvent, QFont, QFontMetrics, QTextOption
+    QPaintEvent, QFont, QFontMetrics, QTextOption, QIcon, QPainterPath
 )
 from app.pdf.pdf_loader import PDFLoader
 from app.pdf.pdf_renderer import PDFRenderer
@@ -43,6 +43,49 @@ FLICKER_BTN_STYLE_ON = """
         background-color: #059669;
     }
 """
+
+def create_warning_icon(size: int = 24) -> QIcon:
+    """Requirement 2: Creates a crisp monochrome outline warning triangle matching the blue vector style of floating buttons."""
+    icon = QIcon()
+    for state, color_hex in [("normal", "#0284C7"), ("checked", "#FFFFFF"), ("disabled", "#CBD5E1")]:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        pen = QPen(QColor(color_hex), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        top_pt = QPointF(size / 2.0, 3.5)
+        bl_pt = QPointF(3.5, size - 3.5)
+        br_pt = QPointF(size - 3.5, size - 3.5)
+
+        path = QPainterPath()
+        path.moveTo(top_pt)
+        path.lineTo(bl_pt)
+        path.lineTo(br_pt)
+        path.closeSubpath()
+        painter.drawPath(path)
+
+        bar_pen = QPen(QColor(color_hex), 2.2, Qt.SolidLine, Qt.RoundCap)
+        painter.setPen(bar_pen)
+        painter.drawLine(QPointF(size / 2.0, 8.5), QPointF(size / 2.0, size - 9.5))
+        painter.drawPoint(QPointF(size / 2.0, size - 6.0))
+
+        painter.end()
+
+        if state == "normal":
+            icon.addPixmap(pixmap, QIcon.Normal, QIcon.Off)
+        elif state == "checked":
+            icon.addPixmap(pixmap, QIcon.Normal, QIcon.On)
+        elif state == "disabled":
+            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.Off)
+            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.On)
+
+    return icon
+
 
 FLOATING_BTN_STYLE = """
     QPushButton {
@@ -1112,24 +1155,28 @@ class ComparisonTab(QWidget):
         col_center_right.addLayout(row_cright_lower)
 
         # Requirements 1 & 2: Ensure identical button sizes for (Draw Highlight <-> Add Note) and (Clear Drawings <-> Remove Note)
-        fm = self.fontMetrics()
+        # Uses bold font metrics with ample padding so text is never truncated on any DPI
+        btn_font = self.font()
+        btn_font.setBold(True)
+        fm = QFontMetrics(btn_font)
+        pad = 36
         w_highlight_note = max(
-            fm.horizontalAdvance("Draw Highlight: OFF"),
-            fm.horizontalAdvance("Draw Highlight: ON"),
-            fm.horizontalAdvance("Add Note: OFF"),
-            fm.horizontalAdvance("Add Note: ON")
-        ) + 24
+            fm.horizontalAdvance("Draw Highlight: OFF") + pad,
+            fm.horizontalAdvance("Draw Highlight: ON") + pad,
+            fm.horizontalAdvance("Add Note: OFF") + pad,
+            fm.horizontalAdvance("Add Note: ON") + pad,
+            185
+        )
         w_clear_remove = max(
-            fm.horizontalAdvance("Clear Drawings"),
-            fm.horizontalAdvance("Remove Note")
-        ) + 24
-        w_col1 = max(w_highlight_note, 135)
-        w_col2 = max(w_clear_remove, 110)
+            fm.horizontalAdvance("Clear Drawings") + pad,
+            fm.horizontalAdvance("Remove Note") + pad,
+            145
+        )
 
-        self.btn_draw.setFixedWidth(w_col1)
-        self.btn_note.setFixedWidth(w_col1)
-        self.btn_clear_draw.setFixedWidth(w_col2)
-        self.btn_remove_note.setFixedWidth(w_col2)
+        self.btn_draw.setFixedWidth(w_highlight_note)
+        self.btn_note.setFixedWidth(w_highlight_note)
+        self.btn_clear_draw.setFixedWidth(w_clear_remove)
+        self.btn_remove_note.setFixedWidth(w_clear_remove)
 
         toolbar_section.addLayout(col_center_right)
 
@@ -1249,8 +1296,10 @@ class ComparisonTab(QWidget):
         self.float_btn_note.clicked.connect(self.toggle_note_mode)
         fp_layout.addWidget(self.float_btn_note)
 
-        # Requirement 3: Monochrome warning triangle with exclamation mark inside
-        self.float_btn_error = QPushButton("⚠")
+        # Requirement 2: Crisp monochrome outline warning triangle matching the blue vector style of floating buttons
+        self.float_btn_error = QPushButton()
+        self.float_btn_error.setIcon(create_warning_icon(24))
+        self.float_btn_error.setIconSize(QSize(24, 24))
         self.float_btn_error.setFixedSize(42, 42)
         self.float_btn_error.setCheckable(True)
         self.float_btn_error.setEnabled(False)
@@ -1395,6 +1444,27 @@ class ComparisonTab(QWidget):
         self.float_btn_clear.setEnabled(True)
         self.float_btn_save.setEnabled(True)
         self.floating_panel.raise_()
+
+        # Restore any existing error markers for this chart from ErrorsTab
+        parent_win = self.window()
+        tab_errors = getattr(parent_win, 'tab_errors', None)
+        if tab_errors and hasattr(tab_errors, 'errors_list'):
+            current_chart = ""
+            if self.path_updated:
+                current_chart = self.path_updated.replace('\\', '/').split('/')[-1]
+            existing_ids = {m.get("id") for m in self.chart_display.error_markers}
+            for err in tab_errors.errors_list:
+                if err.id.startswith("ERR-") and (not err.chart or not current_chart or err.chart == current_chart):
+                    if err.id not in existing_ids:
+                        self.add_error_marker_from_log({
+                            "id": err.id,
+                            "type": err.type,
+                            "description": err.description,
+                            "severity": err.severity,
+                            "chart": err.chart,
+                            "comments": err.comments
+                        })
+                        existing_ids.add(err.id)
         
         self.charts_loaded.emit()
         QMessageBox.information(self, "Success", "Charts loaded successfully.")
@@ -1648,6 +1718,47 @@ class ComparisonTab(QWidget):
                     tab_report.update_summary_metrics()
 
         self.disable_error_pin_mode()
+
+    def add_error_marker_from_log(self, data: dict):
+        """Requirement 3: Adds an error marker in the upper left corner of the chart, fully editable and draggable."""
+        error_id = data.get("id", "")
+        if not error_id:
+            return
+
+        # Check if already present on the chart
+        for m in self.chart_display.error_markers:
+            if m.get("id") == error_id:
+                m["type"] = data.get("type", "")
+                m["description"] = data.get("description", "")
+                m["severity"] = data.get("severity", "")
+                m["chart"] = data.get("chart", "")
+                m["comments"] = data.get("comments", "")
+                self.chart_display.update()
+                return
+
+        # Calculate position in the upper left corner (stagger if multiple markers are in the corner)
+        corner_markers = [
+            m for m in self.chart_display.error_markers
+            if m["pos"].x() < 320 and m["pos"].y() < 320
+        ]
+        stagger = len(corner_markers)
+        pos_x = 45.0 + (stagger % 3) * 80.0
+        pos_y = 45.0 + (stagger // 3) * 36.0
+
+        marker_obj = {
+            "pos": QPointF(pos_x, pos_y),
+            "id": error_id,
+            "type": data.get("type", ""),
+            "description": data.get("description", ""),
+            "severity": data.get("severity", ""),
+            "chart": data.get("chart", ""),
+            "comments": data.get("comments", "")
+        }
+        self.chart_display.error_markers.append(marker_obj)
+        self.chart_display.update()
+        self.btn_save_annotated.setEnabled(True)
+        if hasattr(self, 'float_btn_save'):
+            self.float_btn_save.setEnabled(True)
 
     def prompt_clear_drawings(self):
         """Requirement 4: Allows user to choose which drawing shall be removed or clear all."""

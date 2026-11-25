@@ -122,6 +122,11 @@ class ErrorsTab(QWidget):
                 self.btn_delete.setEnabled(True)
                 self.error_added.emit()
 
+                # Requirement 3: When registering new error in Errors tab, appear on the chart in Chart Comparison tab (upper left corner)
+                tab_comparison = getattr(parent_win, 'tab_comparison', None)
+                if tab_comparison:
+                    tab_comparison.add_error_marker_from_log(data)
+
     def open_edit_error_dialog(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
