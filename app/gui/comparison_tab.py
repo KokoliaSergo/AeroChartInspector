@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox,
-    QInputDialog, QDialog, QTextEdit
+    QInputDialog, QDialog, QTextEdit, QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent, QRectF, QRect
 from PySide6.QtGui import (
@@ -127,6 +127,122 @@ class EditNoteDialog(QDialog):
         return self.text_edit.toPlainText().strip()
 
 
+class ClearDrawingsDialog(QDialog):
+    """Requirement 4: Allows user to choose which drawing stroke to remove or clear all."""
+    def __init__(self, chart_display, parent=None):
+        super().__init__(parent)
+        self.chart_display = chart_display
+        self.setWindowTitle("Clear / Remove Drawings")
+        self.setMinimumWidth(380)
+        self.resize(400, 340)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        lbl = QLabel("Select a highlight drawing to remove, or choose Clear All:")
+        lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 13px;")
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px;
+                background-color: #F8FAFC;
+                font-size: 12px;
+            }
+            QListWidget::item {
+                padding: 8px 10px;
+                border-radius: 4px;
+                margin-bottom: 3px;
+            }
+            QListWidget::item:selected {
+                background-color: #0284C7;
+                color: white;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.list_widget)
+
+        self.populate_list()
+        self.list_widget.currentRowChanged.connect(self.on_selection_changed)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        self.btn_remove = QPushButton("Remove Selected")
+        self.btn_remove.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_remove.clicked.connect(self.remove_selected)
+        btn_layout.addWidget(self.btn_remove)
+
+        self.btn_clear_all = QPushButton("Clear All Drawings")
+        self.btn_clear_all.setStyleSheet("background-color: #F59E0B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_clear_all.clicked.connect(self.clear_all)
+        btn_layout.addWidget(self.btn_clear_all)
+
+        self.btn_close = QPushButton("Cancel")
+        self.btn_close.setStyleSheet("background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px;")
+        self.btn_close.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_close)
+
+        layout.addLayout(btn_layout)
+
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def populate_list(self):
+        self.list_widget.clear()
+        for i, stroke in enumerate(self.chart_display.strokes):
+            item = QListWidgetItem(f"Drawing #{i + 1} ({len(stroke)} points)")
+            self.list_widget.addItem(item)
+
+    def on_selection_changed(self, row):
+        if 0 <= row < len(self.chart_display.strokes):
+            self.chart_display.highlighted_stroke_index = row
+        else:
+            self.chart_display.highlighted_stroke_index = None
+        self.chart_display.update()
+
+    def remove_selected(self):
+        row = self.list_widget.currentRow()
+        if 0 <= row < len(self.chart_display.strokes):
+            self.chart_display.strokes.pop(row)
+            if not self.chart_display.strokes:
+                self.chart_display.highlighted_stroke_index = None
+                self.chart_display.update()
+                self.accept()
+                return
+            new_row = min(row, len(self.chart_display.strokes) - 1)
+            self.populate_list()
+            self.list_widget.setCurrentRow(new_row)
+            self.chart_display.update()
+
+    def clear_all(self):
+        confirm = QMessageBox.question(
+            self, "Confirm Clear All",
+            "Are you sure you want to clear all highlight drawings?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            self.chart_display.strokes.clear()
+            self.chart_display.highlighted_stroke_index = None
+            self.chart_display.update()
+            self.accept()
+
+    def reject(self):
+        self.chart_display.highlighted_stroke_index = None
+        self.chart_display.update()
+        super().reject()
+
+    def accept(self):
+        self.chart_display.highlighted_stroke_index = None
+        self.chart_display.update()
+        super().accept()
+
+
 class InteractiveChartWidget(QLabel):
     drawing_added = Signal()
     rotation_changed = Signal(float)
@@ -158,6 +274,7 @@ class InteractiveChartWidget(QLabel):
         
         self.strokes = [] 
         self.current_stroke = []
+        self.highlighted_stroke_index = None
         self.notes = []          # List of dicts: {"id": str, "pos": QPointF, "text": str, "chart": str}
         self.error_markers = []  # List of dicts: {"pos": QPointF, "id": str, "type": str, "description": str, "severity": str, "chart": str, "comments": str}
         
@@ -245,8 +362,9 @@ class InteractiveChartWidget(QLabel):
         self.rotation_changed.emit(self.rotation_old)
 
     def clear_drawings(self):
-        """Item 3: Only clears drawing strokes, strictly preserves notes and error markers!"""
+        """Only clears drawing strokes, strictly preserves notes and error markers!"""
         self.strokes.clear()
+        self.highlighted_stroke_index = None
         self.update()
 
     def _get_note_bubble_rect(self, scr_pt: QPointF, note_id: str, text: str, bounds: QRectF = None) -> QRectF:
@@ -568,11 +686,26 @@ class InteractiveChartWidget(QLabel):
             if scaled_old:
                 draw_scaled_old(painter, self.opacity_old)
 
-        pen = QPen(QColor(239, 68, 68), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        
-        for stroke in self.strokes:
+        for idx, stroke in enumerate(self.strokes):
             screen_stroke = [self.chart_to_screen_coords(pt, x_up, y_up) for pt in stroke]
+            if getattr(self, 'highlighted_stroke_index', None) == idx:
+                halo_pen = QPen(QColor(14, 165, 233, 210), 9, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+                painter.setPen(halo_pen)
+                for i in range(len(screen_stroke) - 1):
+                    painter.drawLine(screen_stroke[i], screen_stroke[i + 1])
+                if screen_stroke:
+                    painter.save()
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(14, 165, 233, 230))
+                    badge_rect = QRectF(screen_stroke[0].x() - 12, screen_stroke[0].y() - 26, 84, 22)
+                    painter.drawRoundedRect(badge_rect, 4, 4)
+                    painter.setPen(QColor(255, 255, 255))
+                    painter.setFont(QFont("Arial", 9, QFont.Bold))
+                    painter.drawText(badge_rect, Qt.AlignCenter, f"Drawing #{idx + 1}")
+                    painter.restore()
+
+            pen = QPen(QColor(239, 68, 68), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(pen)
             for i in range(len(screen_stroke) - 1):
                 painter.drawLine(screen_stroke[i], screen_stroke[i+1])
         
@@ -955,7 +1088,7 @@ class ComparisonTab(QWidget):
 
         self.btn_clear_draw = QPushButton("Clear Drawings")
         self.btn_clear_draw.setEnabled(False)
-        self.btn_clear_draw.clicked.connect(lambda: self.chart_display.clear_drawings())
+        self.btn_clear_draw.clicked.connect(self.prompt_clear_drawings)
         row_cright_upper.addWidget(self.btn_clear_draw)
         row_cright_upper.addStretch()
         col_center_right.addLayout(row_cright_upper)
@@ -977,6 +1110,26 @@ class ComparisonTab(QWidget):
         row_cright_lower.addWidget(self.btn_remove_note)
         row_cright_lower.addStretch()
         col_center_right.addLayout(row_cright_lower)
+
+        # Requirements 1 & 2: Ensure identical button sizes for (Draw Highlight <-> Add Note) and (Clear Drawings <-> Remove Note)
+        fm = self.fontMetrics()
+        w_highlight_note = max(
+            fm.horizontalAdvance("Draw Highlight: OFF"),
+            fm.horizontalAdvance("Draw Highlight: ON"),
+            fm.horizontalAdvance("Add Note: OFF"),
+            fm.horizontalAdvance("Add Note: ON")
+        ) + 24
+        w_clear_remove = max(
+            fm.horizontalAdvance("Clear Drawings"),
+            fm.horizontalAdvance("Remove Note")
+        ) + 24
+        w_col1 = max(w_highlight_note, 135)
+        w_col2 = max(w_clear_remove, 110)
+
+        self.btn_draw.setFixedWidth(w_col1)
+        self.btn_note.setFixedWidth(w_col1)
+        self.btn_clear_draw.setFixedWidth(w_col2)
+        self.btn_remove_note.setFixedWidth(w_col2)
 
         toolbar_section.addLayout(col_center_right)
 
@@ -1096,8 +1249,8 @@ class ComparisonTab(QWidget):
         self.float_btn_note.clicked.connect(self.toggle_note_mode)
         fp_layout.addWidget(self.float_btn_note)
 
-        # Requirement 4: Monochrome symbol style matching ✥, ↻, ✎, ⌫
-        self.float_btn_error = QPushButton("⨂")
+        # Requirement 3: Monochrome warning triangle with exclamation mark inside
+        self.float_btn_error = QPushButton("⚠")
         self.float_btn_error.setFixedSize(42, 42)
         self.float_btn_error.setCheckable(True)
         self.float_btn_error.setEnabled(False)
@@ -1106,14 +1259,23 @@ class ComparisonTab(QWidget):
         self.float_btn_error.clicked.connect(self.toggle_error_pin_mode)
         fp_layout.addWidget(self.float_btn_error)
 
-        # Requirement 3: Updated tooltip to "Clear Drawings"
+        # Requirement 4: Updated clear button triggering drawing selection dialog
         self.float_btn_clear = QPushButton("⌫")
         self.float_btn_clear.setFixedSize(42, 42)
         self.float_btn_clear.setEnabled(False)
         self.float_btn_clear.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_clear.setToolTip("Clear Drawings")
-        self.float_btn_clear.clicked.connect(lambda: self.chart_display.clear_drawings())
+        self.float_btn_clear.clicked.connect(self.prompt_clear_drawings)
         fp_layout.addWidget(self.float_btn_clear)
+
+        # Requirement 5: Save Annotated Chart floating button matching symbol style
+        self.float_btn_save = QPushButton("🖫")
+        self.float_btn_save.setFixedSize(42, 42)
+        self.float_btn_save.setEnabled(False)
+        self.float_btn_save.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_save.setToolTip("Save Annotated Chart to Report")
+        self.float_btn_save.clicked.connect(self.save_annotated_chart)
+        fp_layout.addWidget(self.float_btn_save)
 
         self.floating_panel.adjustSize()
         self.floating_panel.move(16, 16)
@@ -1129,6 +1291,11 @@ class ComparisonTab(QWidget):
 
     def on_drawing_added(self):
         self.btn_save_annotated.setEnabled(True)
+        if hasattr(self, 'float_btn_save'):
+            self.float_btn_save.setEnabled(True)
+        self.btn_clear_draw.setEnabled(True)
+        if hasattr(self, 'float_btn_clear'):
+            self.float_btn_clear.setEnabled(True)
 
     def save_annotated_chart(self):
         pixmap = self.chart_display.get_annotated_pixmap()
@@ -1226,6 +1393,7 @@ class ComparisonTab(QWidget):
         self.float_btn_note.setEnabled(True)
         self.float_btn_error.setEnabled(True)
         self.float_btn_clear.setEnabled(True)
+        self.float_btn_save.setEnabled(True)
         self.floating_panel.raise_()
         
         self.charts_loaded.emit()
@@ -1276,6 +1444,7 @@ class ComparisonTab(QWidget):
         self.float_btn_error.setEnabled(False)
         self.float_btn_error.setChecked(False)
         self.float_btn_clear.setEnabled(False)
+        self.float_btn_save.setEnabled(False)
         
         self.charts_cleared.emit()
         QMessageBox.information(self, "Reset", "Comparison session cleared. Previously defined error logs remain intact.")
@@ -1401,6 +1570,8 @@ class ComparisonTab(QWidget):
                 self.chart_display.selected_note = note_obj
                 self.chart_display.update()
                 self.btn_save_annotated.setEnabled(True)
+                if hasattr(self, 'float_btn_save'):
+                    self.float_btn_save.setEnabled(True)
                 self.btn_remove_note.setEnabled(True)
                 self.btn_remove_note.setText(f"Remove Note ({note_id})")
 
@@ -1469,12 +1640,27 @@ class ComparisonTab(QWidget):
                 })
                 self.chart_display.update()
                 self.btn_save_annotated.setEnabled(True)
+                if hasattr(self, 'float_btn_save'):
+                    self.float_btn_save.setEnabled(True)
 
                 tab_report = getattr(parent_win, 'tab_report', None)
                 if tab_report:
                     tab_report.update_summary_metrics()
 
         self.disable_error_pin_mode()
+
+    def prompt_clear_drawings(self):
+        """Requirement 4: Allows user to choose which drawing shall be removed or clear all."""
+        if not self.chart_display.strokes:
+            QMessageBox.information(self, "No Drawings", "There are no highlight drawings on the chart to remove.")
+            return
+
+        dialog = ClearDrawingsDialog(self.chart_display, self)
+        dialog.exec()
+        has_drawings = len(self.chart_display.strokes) > 0
+        self.btn_clear_draw.setEnabled(has_drawings)
+        if hasattr(self, 'float_btn_clear'):
+            self.float_btn_clear.setEnabled(has_drawings)
 
     def remove_selected_note(self):
         """Item 3: Remove selected note or prompt to select which note to remove one by one."""
