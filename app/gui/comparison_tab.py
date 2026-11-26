@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox,
-    QInputDialog, QDialog, QTextEdit, QListWidget, QListWidgetItem, QMenu
+    QInputDialog, QDialog, QTextEdit, QListWidget, QListWidgetItem, QMenu,
+    QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent, QRectF, QRect
 from PySide6.QtGui import (
@@ -45,38 +46,164 @@ FLICKER_BTN_STYLE_ON = """
     }
 """
 
-def create_warning_icon(size: int = 24) -> QIcon:
-    """Requirement 2: Creates a crisp monochrome outline warning triangle matching the blue vector style of floating buttons."""
+def draw_drag(p: QPainter, s: float, c: QColor):
+    p.setPen(QPen(c, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    m = s / 2.0
+    p.drawLine(QPointF(4.0, m), QPointF(s - 4.0, m))
+    p.drawLine(QPointF(m, 4.0), QPointF(m, s - 4.0))
+    p.drawLine(QPointF(m - 2.8, 6.8), QPointF(m, 4.0))
+    p.drawLine(QPointF(m + 2.8, 6.8), QPointF(m, 4.0))
+    p.drawLine(QPointF(m - 2.8, s - 6.8), QPointF(m, s - 4.0))
+    p.drawLine(QPointF(m + 2.8, s - 6.8), QPointF(m, s - 4.0))
+    p.drawLine(QPointF(6.8, m - 2.8), QPointF(4.0, m))
+    p.drawLine(QPointF(6.8, m + 2.8), QPointF(4.0, m))
+    p.drawLine(QPointF(s - 6.8, m - 2.8), QPointF(s - 4.0, m))
+    p.drawLine(QPointF(s - 6.8, m + 2.8), QPointF(s - 4.0, m))
+
+def draw_rotate(p: QPainter, s: float, c: QColor):
+    pen = QPen(c, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    
+    p.save()
+    p.translate(12.0, 12.0)
+    p.scale(0.82, 0.82)
+    p.translate(-12.0, -12.0)
+    
+    # Clockwise circular arc
+    path = QPainterPath()
+    path.moveTo(21.0, 12.0)
+    rect = QRectF(3.0, 3.0, 18.0, 18.0)
+    path.arcTo(rect, 0.0, -270.0)
+    path.cubicTo(12.0 + 2.52, 3.0, 12.0 + 4.93, 3.0 + 1.0, 12.0 + 6.74, 3.0 + 2.74)
+    path.lineTo(21.0, 8.0)
+    p.drawPath(path)
+    
+    # Arrowhead polyline pointing clockwise (downwards/rightwards):
+    arrow = QPainterPath()
+    arrow.moveTo(21.0, 3.0)
+    arrow.lineTo(21.0, 8.0)
+    arrow.lineTo(16.0, 8.0)
+    p.drawPath(arrow)
+    p.restore()
+
+def draw_pencil(p: QPainter, s: float, c: QColor):
+    p.save()
+    p.translate(s / 2.0, s / 2.0)
+    p.rotate(-45)
+    pen = QPen(c, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    p.drawRect(QRectF(-2.6, -7.5, 5.2, 10.5))
+    p.drawLine(QPointF(-2.6, -4.5), QPointF(2.6, -4.5))
+    tip = QPainterPath()
+    tip.moveTo(-2.6, 3.0)
+    tip.lineTo(0.0, 8.5)
+    tip.lineTo(2.6, 3.0)
+    tip.closeSubpath()
+    p.drawPath(tip)
+    p.setBrush(c)
+    lead = QPainterPath()
+    lead.moveTo(-1.2, 5.8)
+    lead.lineTo(0.0, 8.5)
+    lead.lineTo(1.2, 5.8)
+    lead.closeSubpath()
+    p.drawPath(lead)
+    p.restore()
+
+def draw_marker(p: QPainter, s: float, c: QColor):
+    p.save()
+    p.translate(s / 2.0, s / 2.0)
+    p.rotate(-45)
+    pen = QPen(c, 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    p.drawRoundedRect(QRectF(-3.5, -8.0, 7.0, 10.0), 1.5, 1.5)
+    tip = QPainterPath()
+    tip.moveTo(-2.5, 2.0)
+    tip.lineTo(2.5, 2.0)
+    tip.lineTo(2.0, 7.0)
+    tip.lineTo(-1.0, 8.5)
+    tip.closeSubpath()
+    p.setBrush(c)
+    p.drawPath(tip)
+    p.restore()
+
+def draw_note(p: QPainter, s: float, c: QColor):
+    pen = QPen(c, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    path = QPainterPath()
+    path.moveTo(5.0, 3.5)
+    path.lineTo(14.0, 3.5)
+    path.lineTo(19.0, 8.5)
+    path.lineTo(19.0, 20.5)
+    path.lineTo(5.0, 20.5)
+    path.closeSubpath()
+    p.drawPath(path)
+    fold = QPainterPath()
+    fold.moveTo(14.0, 3.5)
+    fold.lineTo(14.0, 8.5)
+    fold.lineTo(19.0, 8.5)
+    p.drawPath(fold)
+    line_pen = QPen(c, 1.5, Qt.SolidLine, Qt.RoundCap)
+    p.setPen(line_pen)
+    p.drawLine(QPointF(8.0, 12.0), QPointF(16.0, 12.0))
+    p.drawLine(QPointF(8.0, 15.5), QPointF(14.0, 15.5))
+
+def draw_warning(p: QPainter, s: float, c: QColor):
+    pen = QPen(c, 1.9, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    path = QPainterPath()
+    path.moveTo(s / 2.0, 3.5)
+    path.lineTo(3.5, s - 3.5)
+    path.lineTo(s - 3.5, s - 3.5)
+    path.closeSubpath()
+    p.drawPath(path)
+    bar_pen = QPen(c, 2.1, Qt.SolidLine, Qt.RoundCap)
+    p.setPen(bar_pen)
+    p.drawLine(QPointF(s / 2.0, 8.5), QPointF(s / 2.0, s - 9.5))
+    p.drawPoint(QPointF(s / 2.0, s - 6.0))
+
+def draw_clear(p: QPainter, s: float, c: QColor):
+    pen = QPen(c, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    path = QPainterPath()
+    path.moveTo(3.5, s / 2.0)
+    path.lineTo(8.5, 4.5)
+    path.lineTo(s - 3.5, 4.5)
+    path.lineTo(s - 3.5, s - 4.5)
+    path.lineTo(8.5, s - 4.5)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.drawLine(QPointF(11.0, 8.5), QPointF(17.0, 15.5))
+    p.drawLine(QPointF(17.0, 8.5), QPointF(11.0, 15.5))
+
+def draw_floppy(p: QPainter, s: float, c: QColor):
+    pen = QPen(c, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
+    path = QPainterPath()
+    path.moveTo(4.0, 4.0)
+    path.lineTo(s - 6.5, 4.0)
+    path.lineTo(s - 4.0, 6.5)
+    path.lineTo(s - 4.0, s - 4.0)
+    path.lineTo(4.0, s - 4.0)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.drawRect(QRectF(7.5, 4.0, s - 15.0, 5.5))
+    p.drawRect(QRectF(6.5, 12.5, s - 13.0, 7.5))
+
+def create_high_dpi_icon(draw_func, size: int = 24, scale: int = 3, is_dark: bool = False) -> QIcon:
+    """Generates crisp vector QIcon rendered at high-DPI (scale x) to prevent pixelation/blurriness across all themes and scaling factors."""
     icon = QIcon()
-    for state, color_hex in [("normal", "#0284C7"), ("checked", "#FFFFFF"), ("disabled", "#CBD5E1")]:
-        pixmap = QPixmap(size, size)
+    normal_color = "#38BDF8" if is_dark else "#0284C7"
+    checked_color = "#FFFFFF"
+    disabled_color = "#475569" if is_dark else "#CBD5E1"
+    for state, color_hex in [("normal", normal_color), ("checked", checked_color), ("disabled", disabled_color)]:
+        pixmap = QPixmap(size * scale, size * scale)
         pixmap.fill(Qt.transparent)
-
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        pen = QPen(QColor(color_hex), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-
-        top_pt = QPointF(size / 2.0, 3.5)
-        bl_pt = QPointF(3.5, size - 3.5)
-        br_pt = QPointF(size - 3.5, size - 3.5)
-
-        path = QPainterPath()
-        path.moveTo(top_pt)
-        path.lineTo(bl_pt)
-        path.lineTo(br_pt)
-        path.closeSubpath()
-        painter.drawPath(path)
-
-        bar_pen = QPen(QColor(color_hex), 2.2, Qt.SolidLine, Qt.RoundCap)
-        painter.setPen(bar_pen)
-        painter.drawLine(QPointF(size / 2.0, 8.5), QPointF(size / 2.0, size - 9.5))
-        painter.drawPoint(QPointF(size / 2.0, size - 6.0))
-
-        painter.end()
-
+        pixmap.setDevicePixelRatio(scale)
+        p = QPainter(pixmap)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        draw_func(p, float(size), QColor(color_hex))
+        p.end()
         if state == "normal":
             icon.addPixmap(pixmap, QIcon.Normal, QIcon.Off)
         elif state == "checked":
@@ -84,77 +211,67 @@ def create_warning_icon(size: int = 24) -> QIcon:
         elif state == "disabled":
             icon.addPixmap(pixmap, QIcon.Disabled, QIcon.Off)
             icon.addPixmap(pixmap, QIcon.Disabled, QIcon.On)
-
     return icon
-
-
-def create_marker_icon(size: int = 24) -> QIcon:
-    """Creates a crisp vector highlighter marker icon matching the blue style of floating buttons."""
-    icon = QIcon()
-    for state, color_hex in [("normal", "#0284C7"), ("checked", "#FFFFFF"), ("disabled", "#CBD5E1")]:
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        pen = QPen(QColor(color_hex), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-
-        painter.save()
-        painter.translate(size / 2.0, size / 2.0)
-        painter.rotate(-45)
-
-        # Marker barrel
-        painter.drawRoundedRect(-3.5, -8.0, 7.0, 10.0, 1.5, 1.5)
-        # Chisel tip
-        tip_path = QPainterPath()
-        tip_path.moveTo(-2.5, 2.0)
-        tip_path.lineTo(2.5, 2.0)
-        tip_path.lineTo(2.0, 7.0)
-        tip_path.lineTo(-1.0, 8.5)
-        tip_path.closeSubpath()
-        painter.setBrush(QColor(color_hex))
-        painter.drawPath(tip_path)
-
-        painter.restore()
-        painter.end()
-
-        if state == "normal":
-            icon.addPixmap(pixmap, QIcon.Normal, QIcon.Off)
-        elif state == "checked":
-            icon.addPixmap(pixmap, QIcon.Normal, QIcon.On)
-        elif state == "disabled":
-            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.Off)
-            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.On)
-
-    return icon
-
 
 FLOATING_BTN_STYLE = """
+    QToolTip {
+        background-color: #E2E8F0;
+        color: #000000;
+        border: 1px solid #94A3B8;
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 11px;
+        font-weight: 500;
+    }
     QPushButton {
-        background-color: rgba(255, 255, 255, 0.85);
-        border: 2px dashed #0284C7;
+        background-color: rgba(255, 255, 255, 0.88);
+        border: 2px solid #0284C7;
         border-radius: 8px;
-        color: #0284C7;
-        font-size: 20px;
-        font-weight: bold;
         padding: 0px;
         margin: 0px;
     }
     QPushButton:hover {
         background-color: rgba(224, 242, 254, 0.95);
-        border: 2px solid #0284C7;
+        border: 2px solid #0369A1;
     }
     QPushButton:checked {
         background-color: #0284C7;
-        color: #FFFFFF;
         border: 2px solid #0369A1;
     }
     QPushButton:disabled {
         background-color: rgba(248, 250, 252, 0.6);
-        border: 1.5px dashed #CBD5E1;
-        color: #CBD5E1;
+        border: 1.5px solid #CBD5E1;
+    }
+"""
+
+FLOATING_BTN_STYLE_DARK = """
+    QToolTip {
+        background-color: #E2E8F0;
+        color: #000000;
+        border: 1px solid #94A3B8;
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+    QPushButton {
+        background-color: rgba(30, 41, 59, 0.88);
+        border: 2px solid #38BDF8;
+        border-radius: 8px;
+        padding: 0px;
+        margin: 0px;
+    }
+    QPushButton:hover {
+        background-color: rgba(51, 65, 85, 0.95);
+        border: 2px solid #7DD3FC;
+    }
+    QPushButton:checked {
+        background-color: #0284C7;
+        border: 2px solid #38BDF8;
+    }
+    QPushButton:disabled {
+        background-color: rgba(15, 23, 42, 0.6);
+        border: 1.5px solid #475569;
     }
 """
 
@@ -1566,92 +1683,100 @@ class ComparisonTab(QWidget):
         self.floating_panel = QWidget(self.scroll_area.viewport())
         self.floating_panel.setStyleSheet("background: transparent; border: none;")
         fp_layout = QVBoxLayout(self.floating_panel)
-        fp_layout.setContentsMargins(0, 0, 0, 0)
+        fp_layout.setContentsMargins(8, 8, 8, 8)
         fp_layout.setSpacing(8)
 
-        self.float_btn_drag = QPushButton("✥")
+        self.float_btn_drag = QPushButton()
         self.float_btn_drag.setFixedSize(42, 42)
         self.float_btn_drag.setCheckable(True)
         self.float_btn_drag.setEnabled(False)
-        self.float_btn_drag.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_drag.setToolTip("Drag Mode (Left-click drag to pan, Right-click drag to rotate)")
         self.float_btn_drag.clicked.connect(self.toggle_drag_mode)
         fp_layout.addWidget(self.float_btn_drag)
 
-        self.float_btn_rotate = QPushButton("↻")
+        self.float_btn_rotate = QPushButton()
         self.float_btn_rotate.setFixedSize(42, 42)
         self.float_btn_rotate.setEnabled(False)
-        self.float_btn_rotate.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_rotate.setToolTip("Rotate Mode (Click to rotate 90° clockwise)")
         self.float_btn_rotate.clicked.connect(lambda: self.chart_display.rotate_old(90.0))
         fp_layout.addWidget(self.float_btn_rotate)
 
-        self.float_btn_draw = QPushButton("✎")
+        self.float_btn_draw = QPushButton()
         self.float_btn_draw.setFixedSize(42, 42)
         self.float_btn_draw.setCheckable(True)
         self.float_btn_draw.setEnabled(False)
-        self.float_btn_draw.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_draw.setToolTip("Drawing Mode (Highlight discrepancy with red stroke)")
         self.float_btn_draw.clicked.connect(self.toggle_drawing_mode)
         fp_layout.addWidget(self.float_btn_draw)
 
         # Transparent floating button to draw green line after drawing mode button
         self.float_btn_mark = QPushButton()
-        self.float_btn_mark.setIcon(create_marker_icon(24))
-        self.float_btn_mark.setIconSize(QSize(24, 24))
         self.float_btn_mark.setFixedSize(42, 42)
         self.float_btn_mark.setCheckable(True)
         self.float_btn_mark.setEnabled(False)
-        self.float_btn_mark.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_mark.setToolTip("Mark Mode (Draw thick transparent green verification line)")
         self.float_btn_mark.clicked.connect(self.toggle_mark_mode)
         fp_layout.addWidget(self.float_btn_mark)
 
-        self.float_btn_note = QPushButton("🗈")
+        self.float_btn_note = QPushButton()
         self.float_btn_note.setFixedSize(42, 42)
         self.float_btn_note.setCheckable(True)
         self.float_btn_note.setEnabled(False)
-        self.float_btn_note.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_note.setToolTip("Add Note (Click on chart to place a text note)")
         self.float_btn_note.clicked.connect(self.toggle_note_mode)
         fp_layout.addWidget(self.float_btn_note)
 
         self.float_btn_error = QPushButton()
-        self.float_btn_error.setIcon(create_warning_icon(24))
-        self.float_btn_error.setIconSize(QSize(24, 24))
         self.float_btn_error.setFixedSize(42, 42)
         self.float_btn_error.setCheckable(True)
         self.float_btn_error.setEnabled(False)
-        self.float_btn_error.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_error.setToolTip("Record Error (Click on chart to log and pin error)")
         self.float_btn_error.clicked.connect(self.toggle_error_pin_mode)
         fp_layout.addWidget(self.float_btn_error)
 
-        self.float_btn_clear = QPushButton("⌫")
+        self.float_btn_clear = QPushButton()
         self.float_btn_clear.setFixedSize(42, 42)
         self.float_btn_clear.setEnabled(False)
-        self.float_btn_clear.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_clear.setToolTip("Clear Drawings (Select and remove drawings or marks)")
         self.float_btn_clear.clicked.connect(self.prompt_clear_drawings)
         fp_layout.addWidget(self.float_btn_clear)
 
-        self.float_btn_save = QPushButton("🖫")
+        self.float_btn_save = QPushButton()
         self.float_btn_save.setFixedSize(42, 42)
         self.float_btn_save.setEnabled(False)
-        self.float_btn_save.setStyleSheet(FLOATING_BTN_STYLE)
         self.float_btn_save.setToolTip("Save Annotated Chart to Report")
         self.float_btn_save.clicked.connect(self.save_annotated_chart)
         fp_layout.addWidget(self.float_btn_save)
 
+        # Add drop shadow effect to all floating buttons for floating elevation
+        self.floating_buttons = [
+            self.float_btn_drag,
+            self.float_btn_rotate,
+            self.float_btn_draw,
+            self.float_btn_mark,
+            self.float_btn_note,
+            self.float_btn_error,
+            self.float_btn_clear,
+            self.float_btn_save,
+        ]
+        for btn in self.floating_buttons:
+            shadow = QGraphicsDropShadowEffect(btn)
+            shadow.setBlurRadius(10)
+            shadow.setOffset(0, 2)
+            shadow.setColor(QColor(0, 0, 0, 70))
+            btn.setGraphicsEffect(shadow)
+
+        self.update_floating_buttons_theme(is_dark=False)
+
         self.floating_panel.adjustSize()
-        self.floating_panel.move(16, 16)
+        self.floating_panel.move(10, 10)
         self.floating_panel.raise_()
         self.scroll_area.viewport().installEventFilter(self)
 
     def eventFilter(self, watched, event):
         if hasattr(self, 'scroll_area') and watched == self.scroll_area.viewport():
             if event.type() == QEvent.Resize and hasattr(self, 'floating_panel') and self.floating_panel:
-                self.floating_panel.move(16, 16)
+                self.floating_panel.move(10, 10)
                 self.floating_panel.raise_()
         return super().eventFilter(watched, event)
 
@@ -1666,6 +1791,38 @@ class ComparisonTab(QWidget):
         if hasattr(self, 'float_btn_clear'):
             self.float_btn_clear.setEnabled(has_drawings)
 
+    def update_floating_buttons_theme(self, is_dark: bool):
+        """Updates high-DPI icons and styles of floating buttons to ensure razor-sharp rendering in both themes."""
+        btn_style = FLOATING_BTN_STYLE_DARK if is_dark else FLOATING_BTN_STYLE
+        icon_size = QSize(24, 24)
+        buttons_and_drawers = [
+            (self.float_btn_drag, draw_drag),
+            (self.float_btn_rotate, draw_rotate),
+            (self.float_btn_draw, draw_pencil),
+            (self.float_btn_mark, draw_marker),
+            (self.float_btn_note, draw_note),
+            (self.float_btn_error, draw_warning),
+            (self.float_btn_clear, draw_clear),
+            (self.float_btn_save, draw_floppy),
+        ]
+        for btn, drawer in buttons_and_drawers:
+            btn.setStyleSheet(btn_style)
+            btn.setIcon(create_high_dpi_icon(drawer, size=24, scale=3, is_dark=is_dark))
+            btn.setIconSize(icon_size)
+            btn.setText("")
+            
+            # Maintain shadow depth for floating effect in both themes
+            effect = btn.graphicsEffect()
+            if isinstance(effect, QGraphicsDropShadowEffect):
+                if is_dark:
+                    effect.setColor(QColor(0, 0, 0, 160))
+                    effect.setBlurRadius(12)
+                    effect.setOffset(0, 3)
+                else:
+                    effect.setColor(QColor(0, 0, 0, 70))
+                    effect.setBlurRadius(10)
+                    effect.setOffset(0, 2)
+
     def toggle_dark_background(self):
         """Requirement 3: Toggles dark grey background of main comparison window area."""
         is_dark = self.btn_toggle_bg.isChecked()
@@ -1679,6 +1836,7 @@ class ComparisonTab(QWidget):
             self.chart_display.setStyleSheet("background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px;")
             self.scroll_area.setStyleSheet("")
             self.scroll_area.viewport().setStyleSheet("")
+        self.update_floating_buttons_theme(is_dark)
 
     def save_annotated_chart(self):
         pixmap = self.chart_display.get_annotated_pixmap()

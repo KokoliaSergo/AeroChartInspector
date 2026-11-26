@@ -1,17 +1,23 @@
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QLabel, QStatusBar, QMessageBox
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from app.gui.import_tab import ImportTab
 from app.gui.comparison_tab import ComparisonTab
 from app.gui.errors_tab import ErrorsTab
 from app.gui.report_tab import ReportTab
 from app.pdf.pdf_loader import PDFLoader
-from app.config.settings import APP_NAME, VERSION
+from app.config.settings import APP_NAME, VERSION, get_app_icon_path
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{VERSION}")
         self.resize(1200, 800)
+        
+        # Set window icon
+        icon_path = get_app_icon_path()
+        if icon_path:
+            self.setWindowIcon(QIcon(icon_path))
         
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)

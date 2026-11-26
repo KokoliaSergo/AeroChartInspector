@@ -1,4 +1,15 @@
 AVIATION_LIGHT_THEME = """
+/* Universal High-Contrast Tooltip Styling (Light grey background, black text, compact box) */
+QToolTip {
+    background-color: #E2E8F0;
+    color: #000000;
+    border: 1px solid #94A3B8;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
 /* Global Application Font and Background (Light Flight Deck / EFB Day Mode) */
 QWidget {
     background-color: #F8FAFC;

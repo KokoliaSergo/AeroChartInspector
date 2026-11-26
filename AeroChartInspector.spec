@@ -1,13 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-# Check for custom icon in the project root
-icon_candidates = ['app_icon.ico', 'icon.ico', 'assets/icon.ico']
-app_icon = next((f for f in icon_candidates if os.path.exists(f)), None)
+# Custom application icon in the project root
+app_icon = 'app_icon2.ico' if os.path.exists('app_icon2.ico') else 'app_icon.ico'
 
 datas = []
-if app_icon:
-    datas.append((app_icon, '.'))
+for ico in ['app_icon2.ico', 'app_icon.ico', 'icon.ico']:
+    if os.path.exists(ico):
+        datas.append((ico, '.'))
 
 a = Analysis(
     ['app/main.py'],
