@@ -72,7 +72,7 @@ class ErrorsTab(QWidget):
         top_layout.addWidget(QLabel("<b>Recorded Aviation Errors / Discrepancies Log</b>"))
         
         self.btn_sev_guide = QPushButton("ⓘ Severity Guide")
-        self.btn_sev_guide.setStyleSheet("background-color: #E0F2FE; color: #0284C7; border: 1px solid #BAE6FD; border-radius: 4px; padding: 5px 12px; font-weight: bold; font-size: 13px;")
+        self.btn_sev_guide.setStyleSheet("QPushButton { background-color: #E0F2FE; color: #0284C7; border: 1px solid #BAE6FD; border-radius: 4px; padding: 5px 12px; font-weight: bold; font-size: 13px; }")
         self.btn_sev_guide.setToolTip(SEVERITY_TOOLTIP)
         top_layout.addWidget(self.btn_sev_guide)
         
@@ -81,21 +81,21 @@ class ErrorsTab(QWidget):
         self.btn_add = QPushButton("Add Error")
         self.btn_add.setToolTip("Record a new aeronautical chart discrepancy or error manually")
         self.btn_add.setEnabled(False)
-        self.btn_add.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        self.btn_add.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
         self.btn_add.clicked.connect(self.open_add_error_dialog)
         top_layout.addWidget(self.btn_add)
 
         self.btn_edit = QPushButton("Edit Selected Error")
         self.btn_edit.setToolTip("Edit the details, classification, or description of the selected row")
         self.btn_edit.setEnabled(False)
-        self.btn_edit.setStyleSheet("background-color: #D97706; color: white; font-weight: bold;")
+        self.btn_edit.setStyleSheet("QPushButton { background-color: #D97706; color: white; font-weight: bold; }")
         self.btn_edit.clicked.connect(self.open_edit_error_dialog)
         top_layout.addWidget(self.btn_edit)
 
         self.btn_delete = QPushButton("Delete Selected Error")
         self.btn_delete.setToolTip("Delete the selected error or note from the log")
         self.btn_delete.setEnabled(False)
-        self.btn_delete.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        self.btn_delete.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
         self.btn_delete.clicked.connect(self.delete_selected_error)
         top_layout.addWidget(self.btn_delete)
 

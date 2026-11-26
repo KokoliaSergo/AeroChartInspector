@@ -316,11 +316,11 @@ class EditNoteDialog(QDialog):
         btn_layout.addStretch()
         
         self.btn_save = QPushButton("Save")
-        self.btn_save.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold; padding: 6px 18px; border-radius: 4px;")
+        self.btn_save.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; padding: 6px 18px; border-radius: 4px; }")
         self.btn_save.clicked.connect(self.accept)
         
         self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet("background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px;")
+        self.btn_cancel.setStyleSheet("QPushButton { background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px; }")
         self.btn_cancel.clicked.connect(self.reject)
         
         btn_layout.addWidget(self.btn_save)
@@ -379,17 +379,17 @@ class ClearDrawingsDialog(QDialog):
         btn_layout.setSpacing(8)
 
         self.btn_remove = QPushButton("Remove Selected")
-        self.btn_remove.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_remove.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; }")
         self.btn_remove.clicked.connect(self.remove_selected)
         btn_layout.addWidget(self.btn_remove)
 
         self.btn_clear_all = QPushButton("Clear All Drawings & Marks")
-        self.btn_clear_all.setStyleSheet("background-color: #F59E0B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_clear_all.setStyleSheet("QPushButton { background-color: #F59E0B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; }")
         self.btn_clear_all.clicked.connect(self.clear_all)
         btn_layout.addWidget(self.btn_clear_all)
 
         self.btn_close = QPushButton("Cancel")
-        self.btn_close.setStyleSheet("background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px;")
+        self.btn_close.setStyleSheet("QPushButton { background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px; }")
         self.btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_close)
 
@@ -1393,12 +1393,12 @@ class ComparisonTab(QWidget):
         self.btn_load = QPushButton("Load Charts")
         self.btn_load.setToolTip("Load and render both charts for visual comparison")
         self.btn_load.setEnabled(False)
-        self.btn_load.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+        self.btn_load.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
         self.btn_load.clicked.connect(self.load_charts)
 
         self.btn_reset_session = QPushButton("Reset Session")
         self.btn_reset_session.setToolTip("Clear current comparison view and loaded chart documents")
-        self.btn_reset_session.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        self.btn_reset_session.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
         self.btn_reset_session.clicked.connect(self.reset_session)
 
         file_layout.addWidget(self.label_updated, 2)
@@ -1426,7 +1426,7 @@ class ComparisonTab(QWidget):
         self.btn_toggle_drag = QPushButton("Drag Mode: OFF")
         self.btn_toggle_drag.setToolTip("Toggle Drag Mode: Left-drag to pan Old chart, Right-drag to rotate Old chart.")
         self.btn_toggle_drag.setEnabled(False)
-        self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+        self.btn_toggle_drag.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
         self.btn_toggle_drag.clicked.connect(self.toggle_drag_mode)
         row_left_upper.addWidget(self.btn_toggle_drag)
 
@@ -1523,14 +1523,14 @@ class ComparisonTab(QWidget):
         row_cright_upper.setSpacing(6)
         self.btn_draw = QPushButton("Draw: OFF")
         self.btn_draw.setToolTip("Toggle Drawing Mode: Draw red discrepancy highlight lines on chart")
-        self.btn_draw.setStyleSheet("color: #EF4444; font-weight: bold;")
+        self.btn_draw.setStyleSheet("QPushButton { color: #EF4444; font-weight: bold; }")
         self.btn_draw.setEnabled(False)
         self.btn_draw.clicked.connect(self.toggle_drawing_mode)
         row_cright_upper.addWidget(self.btn_draw)
 
         self.btn_mark = QPushButton("Mark: OFF")
         self.btn_mark.setToolTip("Toggle Mark Mode: Draw thick transparent green lines to mark checked places (excluded from report screenshots)")
-        self.btn_mark.setStyleSheet("color: #10B981; font-weight: bold;")
+        self.btn_mark.setStyleSheet("QPushButton { color: #10B981; font-weight: bold; }")
         self.btn_mark.setEnabled(False)
         self.btn_mark.clicked.connect(self.toggle_mark_mode)
         row_cright_upper.addWidget(self.btn_mark)
@@ -1555,7 +1555,7 @@ class ComparisonTab(QWidget):
         self.btn_remove_note = QPushButton("Remove Note")
         self.btn_remove_note.setToolTip("Remove selected note from chart and log, or choose one to remove.")
         self.btn_remove_note.setEnabled(False)
-        self.btn_remove_note.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        self.btn_remove_note.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
         self.btn_remove_note.clicked.connect(self.remove_selected_note)
         row_cright_lower.addWidget(self.btn_remove_note)
         row_cright_lower.addStretch()
@@ -1593,7 +1593,7 @@ class ComparisonTab(QWidget):
         self.btn_save_annotated = QPushButton("Save Annotated Chart to Report")
         self.btn_save_annotated.setToolTip("Save screenshot of the annotated updated chart to report evidence list")
         self.btn_save_annotated.setEnabled(False)
-        self.btn_save_annotated.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        self.btn_save_annotated.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
         self.btn_save_annotated.clicked.connect(self.save_annotated_chart)
         row_right_lower.addWidget(self.btn_save_annotated)
         row_right_lower.addStretch()
@@ -2053,34 +2053,34 @@ class ComparisonTab(QWidget):
         # Update button states (Blue theme for active state)
         if mode_name == "drag":
             self.btn_toggle_drag.setText("Drag Mode: ON")
-            self.btn_toggle_drag.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+            self.btn_toggle_drag.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
             self.float_btn_drag.setChecked(True)
         else:
             self.btn_toggle_drag.setText("Drag Mode: OFF")
-            self.btn_toggle_drag.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+            self.btn_toggle_drag.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
             self.float_btn_drag.setChecked(False)
 
         if mode_name == "draw":
             self.btn_draw.setText("Draw: ON")
-            self.btn_draw.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+            self.btn_draw.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
             self.float_btn_draw.setChecked(True)
         else:
             self.btn_draw.setText("Draw: OFF")
-            self.btn_draw.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.btn_draw.setStyleSheet("QPushButton { color: #EF4444; font-weight: bold; }")
             self.float_btn_draw.setChecked(False)
 
         if mode_name == "mark":
             self.btn_mark.setText("Mark: ON")
-            self.btn_mark.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+            self.btn_mark.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
             self.float_btn_mark.setChecked(True)
         else:
             self.btn_mark.setText("Mark: OFF")
-            self.btn_mark.setStyleSheet("color: #10B981; font-weight: bold;")
+            self.btn_mark.setStyleSheet("QPushButton { color: #10B981; font-weight: bold; }")
             self.float_btn_mark.setChecked(False)
 
         if mode_name == "note":
             self.btn_note.setText("Add Note: ON")
-            self.btn_note.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+            self.btn_note.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
             self.float_btn_note.setChecked(True)
         else:
             self.btn_note.setText("Add Note: OFF")
@@ -2089,7 +2089,7 @@ class ComparisonTab(QWidget):
 
         if mode_name == "error":
             self.btn_pin_error.setText("Record Error: ON")
-            self.btn_pin_error.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+            self.btn_pin_error.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
             self.float_btn_error.setChecked(True)
         else:
             self.btn_pin_error.setText("Record Error: OFF")

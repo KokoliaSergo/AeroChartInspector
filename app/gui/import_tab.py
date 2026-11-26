@@ -31,7 +31,7 @@ class ImportTab(QWidget):
         self.list_updated.setToolTip("List of uploaded new/updated aeronautical chart PDF files")
         btn_upload_up = QPushButton("Upload Updated PDFs")
         btn_upload_up.setToolTip("Select and batch upload new/updated chart PDF files")
-        btn_upload_up.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        btn_upload_up.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
         btn_upload_up.clicked.connect(self.upload_updated_charts)
         
         vbox_up.addWidget(self.list_updated)
@@ -46,7 +46,7 @@ class ImportTab(QWidget):
         self.list_old.setToolTip("List of uploaded previous baseline chart PDF files")
         btn_upload_old = QPushButton("Upload Old PDFs")
         btn_upload_old.setToolTip("Select and batch upload previous baseline chart PDF files")
-        btn_upload_old.setStyleSheet("background-color: #64748B; color: white; font-weight: bold;")
+        btn_upload_old.setStyleSheet("QPushButton { background-color: #64748B; color: white; font-weight: bold; }")
         btn_upload_old.clicked.connect(self.upload_old_charts)
         
         vbox_old.addWidget(self.list_old)
@@ -66,7 +66,7 @@ class ImportTab(QWidget):
         self.combo_map_old.setToolTip("Select corresponding baseline old chart for pairing")
         btn_link = QPushButton("Link Selected Pair")
         btn_link.setToolTip("Create a comparison mapping pair between the selected Updated and Old charts")
-        btn_link.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+        btn_link.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
         btn_link.clicked.connect(self.link_charts)
 
         mapping_layout.addWidget(QLabel("Updated:"))
@@ -90,12 +90,12 @@ class ImportTab(QWidget):
         map_btn_layout = QHBoxLayout()
         btn_edit_map = QPushButton("Edit Selected Mapping")
         btn_edit_map.setToolTip("Select the mapped pair to adjust its matching baseline chart")
-        btn_edit_map.setStyleSheet("background-color: #D97706; color: white; font-weight: bold;")
+        btn_edit_map.setStyleSheet("QPushButton { background-color: #D97706; color: white; font-weight: bold; }")
         btn_edit_map.clicked.connect(self.edit_selected_mapping)
 
         btn_remove_map = QPushButton("Remove Selected Mapping")
         btn_remove_map.setToolTip("Remove the selected mapping pair from the list")
-        btn_remove_map.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        btn_remove_map.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
         btn_remove_map.clicked.connect(self.remove_selected_mapping)
 
         map_btn_layout.addWidget(btn_edit_map)

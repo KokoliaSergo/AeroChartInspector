@@ -49,7 +49,7 @@ class CalendarDialog(QDialog):
         
         btn_layout = QHBoxLayout()
         btn_select = QPushButton("Select")
-        btn_select.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        btn_select.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
         btn_select.clicked.connect(self.accept)
         
         btn_cancel = QPushButton("Cancel")
@@ -158,12 +158,12 @@ class ReportTab(QWidget):
         charts_btn_layout = QHBoxLayout()
         btn_add_charts = QPushButton("Add Chart(s)...")
         btn_add_charts.setToolTip("Add chart files manually to the list of reviewed charts")
-        btn_add_charts.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
+        btn_add_charts.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; }")
         btn_add_charts.clicked.connect(self.add_checked_charts)
         
         btn_remove_chart = QPushButton("Remove Selected Chart")
         btn_remove_chart.setToolTip("Remove the selected chart from the reviewed charts list")
-        btn_remove_chart.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
+        btn_remove_chart.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; }")
         btn_remove_chart.clicked.connect(self.remove_checked_chart)
         
         charts_btn_layout.addWidget(btn_add_charts)
@@ -189,12 +189,12 @@ class ReportTab(QWidget):
         evidence_btn_layout = QHBoxLayout()
         btn_preview_evidence = QPushButton("Preview Selected Evidence")
         btn_preview_evidence.setToolTip("Open full-size view of the selected screenshot evidence")
-        btn_preview_evidence.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        btn_preview_evidence.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
         btn_preview_evidence.clicked.connect(self.preview_selected_evidence)
         
         btn_remove_evidence = QPushButton("Remove Selected Evidence")
         btn_remove_evidence.setToolTip("Delete the selected screenshot from the report evidence list")
-        btn_remove_evidence.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
+        btn_remove_evidence.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
         btn_remove_evidence.clicked.connect(self.remove_selected_evidence)
         
         # Clean small text label replacing the small window box

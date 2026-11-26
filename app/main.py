@@ -1,10 +1,19 @@
 import os
 import sys
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QProxyStyle, QStyle
 from PySide6.QtGui import QIcon
 from app.gui.main_window import MainWindow
 from app.config.theme import AVIATION_LIGHT_THEME
 from app.config.settings import get_app_icon_path
+
+class ToolTipDelayStyle(QProxyStyle):
+    """Enforces 3-second hover delay before pop-up tooltips appear on buttons and controls."""
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.SH_ToolTip_WakeUpDelay:
+            return 3000  # 3000 ms = 3 seconds hover delay
+        if hint == QStyle.SH_ToolTip_FallAsleepDelay:
+            return 0     # Requires 3 seconds hover on every button
+        return super().styleHint(hint, option, widget, returnData)
 
 def main():
     # Set Windows AppUserModelID so the taskbar displays the custom icon properly
@@ -16,6 +25,9 @@ def main():
             pass
 
     app = QApplication(sys.argv)
+    
+    # Apply 3-second hover delay style proxy across all widgets
+    app.setStyle(ToolTipDelayStyle(app.style()))
     
     # Apply modern aviation light theme (EFB Day Mode)
     app.setStyleSheet(AVIATION_LIGHT_THEME)

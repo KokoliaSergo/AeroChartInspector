@@ -28,7 +28,11 @@ def get_app_icon_path():
 
 # Professional Aviation Light Blue Theme Stylesheet
 THEME_STYLESHEET = """
-QToolTip {
+/* Universal High-Contrast Tooltip Styling - Identical for all buttons across entire app */
+QToolTip,
+QPushButton QToolTip,
+QWidget QToolTip,
+QToolButton QToolTip {
     background-color: #E2E8F0;
     color: #000000;
     border: 1px solid #94A3B8;
