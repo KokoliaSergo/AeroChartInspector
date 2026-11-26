@@ -106,8 +106,10 @@ class ReportTab(QWidget):
         self.txt_validation_date = QLineEdit()
         self.txt_validation_date.setText(datetime.now().strftime("%d-%m-%Y"))
         self.txt_validation_date.setPlaceholderText("DD-MM-YYYY")
+        self.txt_validation_date.setToolTip("Validation date in DD-MM-YYYY format")
         
         btn_calendar = QPushButton("Select Date...")
+        btn_calendar.setToolTip("Open calendar pop-up to select inspection validation date")
         btn_calendar.clicked.connect(self.open_calendar_dialog)
         
         date_layout.addWidget(self.txt_validation_date)
@@ -116,6 +118,7 @@ class ReportTab(QWidget):
 
         self.txt_log_sheets = QLineEdit()
         self.txt_log_sheets.setPlaceholderText("Enter Log Sheet numbers (e.g., LS-2026-01, LS-2026-02)")
+        self.txt_log_sheets.setToolTip("Associated Quality Control log sheet reference numbers")
         qc_layout.addRow("Log Sheet Number(s):", self.txt_log_sheets)
 
         qc_group.setLayout(qc_layout)
@@ -128,6 +131,7 @@ class ReportTab(QWidget):
         charts_layout.setSpacing(10)
         
         self.list_checked_charts = QListWidget()
+        self.list_checked_charts.setToolTip("List of charts verified during this session to be included in the report")
         self.list_checked_charts.setMinimumHeight(110)
         self.list_checked_charts.setStyleSheet("""
             QListWidget {
@@ -153,10 +157,12 @@ class ReportTab(QWidget):
         
         charts_btn_layout = QHBoxLayout()
         btn_add_charts = QPushButton("Add Chart(s)...")
+        btn_add_charts.setToolTip("Add chart files manually to the list of reviewed charts")
         btn_add_charts.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
         btn_add_charts.clicked.connect(self.add_checked_charts)
         
         btn_remove_chart = QPushButton("Remove Selected Chart")
+        btn_remove_chart.setToolTip("Remove the selected chart from the reviewed charts list")
         btn_remove_chart.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
         btn_remove_chart.clicked.connect(self.remove_checked_chart)
         
@@ -174,6 +180,7 @@ class ReportTab(QWidget):
         evidence_layout.setContentsMargins(12, 12, 12, 12)
         
         self.list_evidence = QListWidget()
+        self.list_evidence.setToolTip("Double-click any screenshot thumbnail to view a full-size preview")
         self.list_evidence.setIconSize(QSize(100, 70))
         self.list_evidence.setMinimumHeight(220)
         self.list_evidence.itemDoubleClicked.connect(self.preview_selected_evidence)
@@ -181,10 +188,12 @@ class ReportTab(QWidget):
         
         evidence_btn_layout = QHBoxLayout()
         btn_preview_evidence = QPushButton("Preview Selected Evidence")
+        btn_preview_evidence.setToolTip("Open full-size view of the selected screenshot evidence")
         btn_preview_evidence.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
         btn_preview_evidence.clicked.connect(self.preview_selected_evidence)
         
         btn_remove_evidence = QPushButton("Remove Selected Evidence")
+        btn_remove_evidence.setToolTip("Delete the selected screenshot from the report evidence list")
         btn_remove_evidence.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
         btn_remove_evidence.clicked.connect(self.remove_selected_evidence)
         
@@ -229,6 +238,7 @@ class ReportTab(QWidget):
         
         # 5. Generate PDF Report button (Green styled button)
         self.btn_generate = QPushButton("Generate PDF Report")
+        self.btn_generate.setToolTip("Compile and generate official Aeronautical Chart Inspection PDF Report")
         self.btn_generate.setEnabled(False)
         self.btn_generate.setStyleSheet("""
             QPushButton {

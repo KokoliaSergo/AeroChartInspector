@@ -1,12 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QScrollArea, QSlider, QComboBox,
-    QInputDialog, QDialog, QTextEdit, QListWidget, QListWidgetItem
+    QInputDialog, QDialog, QTextEdit, QListWidget, QListWidgetItem, QMenu
 )
 from PySide6.QtCore import Qt, QPoint, QPointF, Signal, QSize, QEvent, QRectF, QRect
 from PySide6.QtGui import (
     QPixmap, QPainter, QPen, QColor, QWheelEvent, QMouseEvent, 
-    QPaintEvent, QFont, QFontMetrics, QTextOption, QIcon, QPainterPath
+    QPaintEvent, QFont, QFontMetrics, QTextOption, QIcon, QPainterPath,
+    QPainterPathStroker, QBrush
 )
 from app.pdf.pdf_loader import PDFLoader
 from app.pdf.pdf_renderer import PDFRenderer
@@ -74,6 +75,49 @@ def create_warning_icon(size: int = 24) -> QIcon:
         painter.drawLine(QPointF(size / 2.0, 8.5), QPointF(size / 2.0, size - 9.5))
         painter.drawPoint(QPointF(size / 2.0, size - 6.0))
 
+        painter.end()
+
+        if state == "normal":
+            icon.addPixmap(pixmap, QIcon.Normal, QIcon.Off)
+        elif state == "checked":
+            icon.addPixmap(pixmap, QIcon.Normal, QIcon.On)
+        elif state == "disabled":
+            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.Off)
+            icon.addPixmap(pixmap, QIcon.Disabled, QIcon.On)
+
+    return icon
+
+
+def create_marker_icon(size: int = 24) -> QIcon:
+    """Creates a crisp vector highlighter marker icon matching the blue style of floating buttons."""
+    icon = QIcon()
+    for state, color_hex in [("normal", "#0284C7"), ("checked", "#FFFFFF"), ("disabled", "#CBD5E1")]:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        pen = QPen(QColor(color_hex), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+
+        painter.save()
+        painter.translate(size / 2.0, size / 2.0)
+        painter.rotate(-45)
+
+        # Marker barrel
+        painter.drawRoundedRect(-3.5, -8.0, 7.0, 10.0, 1.5, 1.5)
+        # Chisel tip
+        tip_path = QPainterPath()
+        tip_path.moveTo(-2.5, 2.0)
+        tip_path.lineTo(2.5, 2.0)
+        tip_path.lineTo(2.0, 7.0)
+        tip_path.lineTo(-1.0, 8.5)
+        tip_path.closeSubpath()
+        painter.setBrush(QColor(color_hex))
+        painter.drawPath(tip_path)
+
+        painter.restore()
         painter.end()
 
         if state == "normal":
@@ -171,19 +215,20 @@ class EditNoteDialog(QDialog):
 
 
 class ClearDrawingsDialog(QDialog):
-    """Requirement 4: Allows user to choose which drawing stroke to remove or clear all."""
+    """Allows user to choose which highlight drawing or green mark to remove, or clear all."""
     def __init__(self, chart_display, parent=None):
         super().__init__(parent)
         self.chart_display = chart_display
-        self.setWindowTitle("Clear / Remove Drawings")
+        self.setWindowTitle("Clear / Remove Drawings & Marks")
         self.setMinimumWidth(380)
-        self.resize(400, 340)
+        self.resize(410, 350)
+        self.item_mapping = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        lbl = QLabel("Select a highlight drawing to remove, or choose Clear All:")
+        lbl = QLabel("Select a highlight drawing or green verification mark to remove, or choose Clear All:")
         lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 13px;")
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
@@ -221,7 +266,7 @@ class ClearDrawingsDialog(QDialog):
         self.btn_remove.clicked.connect(self.remove_selected)
         btn_layout.addWidget(self.btn_remove)
 
-        self.btn_clear_all = QPushButton("Clear All Drawings")
+        self.btn_clear_all = QPushButton("Clear All Drawings & Marks")
         self.btn_clear_all.setStyleSheet("background-color: #F59E0B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
         self.btn_clear_all.clicked.connect(self.clear_all)
         btn_layout.addWidget(self.btn_clear_all)
@@ -238,27 +283,44 @@ class ClearDrawingsDialog(QDialog):
 
     def populate_list(self):
         self.list_widget.clear()
+        self.item_mapping = []
         for i, stroke in enumerate(self.chart_display.strokes):
-            item = QListWidgetItem(f"Drawing #{i + 1} ({len(stroke)} points)")
+            item = QListWidgetItem(f"🔴 Red Highlight #{i + 1} ({len(stroke)} points)")
             self.list_widget.addItem(item)
+            self.item_mapping.append(('stroke', i))
+        for j, stroke in enumerate(self.chart_display.mark_strokes):
+            item = QListWidgetItem(f"🟢 Green Mark #{j + 1} ({len(stroke)} points)")
+            self.list_widget.addItem(item)
+            self.item_mapping.append(('mark', j))
 
     def on_selection_changed(self, row):
-        if 0 <= row < len(self.chart_display.strokes):
-            self.chart_display.highlighted_stroke_index = row
-        else:
-            self.chart_display.highlighted_stroke_index = None
+        self.chart_display.highlighted_stroke_index = None
+        self.chart_display.highlighted_mark_index = None
+        if 0 <= row < len(self.item_mapping):
+            stype, sidx = self.item_mapping[row]
+            if stype == 'stroke':
+                self.chart_display.highlighted_stroke_index = sidx
+            else:
+                self.chart_display.highlighted_mark_index = sidx
         self.chart_display.update()
 
     def remove_selected(self):
         row = self.list_widget.currentRow()
-        if 0 <= row < len(self.chart_display.strokes):
-            self.chart_display.strokes.pop(row)
-            if not self.chart_display.strokes:
+        if 0 <= row < len(self.item_mapping):
+            stype, sidx = self.item_mapping[row]
+            if stype == 'stroke' and 0 <= sidx < len(self.chart_display.strokes):
+                self.chart_display.strokes.pop(sidx)
+            elif stype == 'mark' and 0 <= sidx < len(self.chart_display.mark_strokes):
+                self.chart_display.mark_strokes.pop(sidx)
+
+            total_remaining = len(self.chart_display.strokes) + len(self.chart_display.mark_strokes)
+            if total_remaining == 0:
                 self.chart_display.highlighted_stroke_index = None
+                self.chart_display.highlighted_mark_index = None
                 self.chart_display.update()
                 self.accept()
                 return
-            new_row = min(row, len(self.chart_display.strokes) - 1)
+            new_row = min(row, total_remaining - 1)
             self.populate_list()
             self.list_widget.setCurrentRow(new_row)
             self.chart_display.update()
@@ -266,22 +328,26 @@ class ClearDrawingsDialog(QDialog):
     def clear_all(self):
         confirm = QMessageBox.question(
             self, "Confirm Clear All",
-            "Are you sure you want to clear all highlight drawings?",
+            "Are you sure you want to clear all highlight drawings and green marks?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if confirm == QMessageBox.Yes:
             self.chart_display.strokes.clear()
+            self.chart_display.mark_strokes.clear()
             self.chart_display.highlighted_stroke_index = None
+            self.chart_display.highlighted_mark_index = None
             self.chart_display.update()
             self.accept()
 
     def reject(self):
         self.chart_display.highlighted_stroke_index = None
+        self.chart_display.highlighted_mark_index = None
         self.chart_display.update()
         super().reject()
 
     def accept(self):
         self.chart_display.highlighted_stroke_index = None
+        self.chart_display.highlighted_mark_index = None
         self.chart_display.update()
         super().accept()
 
@@ -312,12 +378,18 @@ class InteractiveChartWidget(QLabel):
         self.drag_mode_enabled = False
         
         self.drawing_mode = False
+        self.mark_mode_enabled = False
         self.note_mode_enabled = False
         self.error_mode_enabled = False
         
         self.strokes = [] 
         self.current_stroke = []
         self.highlighted_stroke_index = None
+
+        self.mark_strokes = []
+        self.current_mark_stroke = []
+        self.highlighted_mark_index = None
+
         self.notes = []          # List of dicts: {"id": str, "pos": QPointF, "text": str, "chart": str}
         self.error_markers = []  # List of dicts: {"pos": QPointF, "id": str, "type": str, "description": str, "severity": str, "chart": str, "comments": str}
         
@@ -333,12 +405,22 @@ class InteractiveChartWidget(QLabel):
         self.drag_button = None
         self.last_mouse_pos = QPoint()
 
+        # Middle mouse drag panning support
+        self.is_middle_panning = False
+        self.middle_pan_start = QPoint()
+        self.parent_scroll_area = None
+
     def set_charts(self, pix_updated, pix_old):
         self.pixmap_updated = pix_updated
         self.pixmap_old = pix_old
         self.offset_old = QPointF(0.0, 0.0)
         self.rotation_old = 0.0
         self.strokes.clear()
+        self.current_stroke.clear()
+        self.highlighted_stroke_index = None
+        self.mark_strokes.clear()
+        self.current_mark_stroke.clear()
+        self.highlighted_mark_index = None
         self.notes.clear()
         self.error_markers.clear()
         self.selected_note = None
@@ -347,6 +429,7 @@ class InteractiveChartWidget(QLabel):
         self.is_dragging_error = False
         self.note_mode_enabled = False
         self.error_mode_enabled = False
+        self.mark_mode_enabled = False
         self.update_widget_size()
         self.update()
         self.rotation_changed.emit(self.rotation_old)
@@ -357,6 +440,11 @@ class InteractiveChartWidget(QLabel):
         self.offset_old = QPointF(0.0, 0.0)
         self.rotation_old = 0.0
         self.strokes.clear()
+        self.current_stroke.clear()
+        self.highlighted_stroke_index = None
+        self.mark_strokes.clear()
+        self.current_mark_stroke.clear()
+        self.highlighted_mark_index = None
         self.notes.clear()
         self.error_markers.clear()
         self.selected_note = None
@@ -365,6 +453,7 @@ class InteractiveChartWidget(QLabel):
         self.is_dragging_error = False
         self.note_mode_enabled = False
         self.error_mode_enabled = False
+        self.mark_mode_enabled = False
         self.zoom_factor = 1.0
         self.setMinimumSize(700, 700)
         self.resize(700, 700)
@@ -405,9 +494,13 @@ class InteractiveChartWidget(QLabel):
         self.rotation_changed.emit(self.rotation_old)
 
     def clear_drawings(self):
-        """Only clears drawing strokes, strictly preserves notes and error markers!"""
+        """Clears drawing strokes and marks, strictly preserves notes and error markers!"""
         self.strokes.clear()
+        self.current_stroke.clear()
         self.highlighted_stroke_index = None
+        self.mark_strokes.clear()
+        self.current_mark_stroke.clear()
+        self.highlighted_mark_index = None
         self.update()
 
     def _get_note_bubble_rect(self, scr_pt: QPointF, note_id: str, text: str, bounds: QRectF = None) -> QRectF:
@@ -628,6 +721,50 @@ class InteractiveChartWidget(QLabel):
         painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
         painter.restore()
 
+    def _draw_flat_highlighter_stroke(self, painter: QPainter, screen_points: list, width: float, color: QColor, halo: bool = False):
+        """Draws a thick, highly transparent flat marker line without dark vertex circles."""
+        if not screen_points:
+            return
+        if len(screen_points) == 1:
+            pt = screen_points[0]
+            painter.save()
+            painter.setPen(Qt.NoPen)
+            if halo:
+                painter.setBrush(QColor(14, 165, 233, 210))
+                painter.drawRect(QRectF(pt.x() - (width + 6) / 2.0, pt.y() - (width + 6) / 2.0, width + 6, width + 6))
+            painter.setBrush(color)
+            painter.drawRect(QRectF(pt.x() - width / 2.0, pt.y() - width / 2.0, width, width))
+            painter.restore()
+            return
+
+        path = QPainterPath()
+        path.moveTo(screen_points[0])
+        for pt in screen_points[1:]:
+            path.lineTo(pt)
+
+        stroker = QPainterPathStroker()
+        stroker.setWidth(width)
+        stroker.setCapStyle(Qt.FlatCap)
+        stroker.setJoinStyle(Qt.RoundJoin)
+        outline = stroker.createStroke(path).simplified()
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        if halo:
+            halo_stroker = QPainterPathStroker()
+            halo_stroker.setWidth(width + 6)
+            halo_stroker.setCapStyle(Qt.FlatCap)
+            halo_stroker.setJoinStyle(Qt.RoundJoin)
+            halo_outline = halo_stroker.createStroke(path).simplified()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(14, 165, 233, 210))
+            painter.drawPath(halo_outline)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawPath(outline)
+        painter.restore()
+
     def get_annotated_pixmap(self) -> QPixmap:
         """Requirement 5: Makes a screenshot ONLY of drawings, notes, error badges, and updated chart (ignores old chart)."""
         if not self.pixmap_updated:
@@ -729,6 +866,19 @@ class InteractiveChartWidget(QLabel):
             if scaled_old:
                 draw_scaled_old(painter, self.opacity_old)
 
+        # Draw green verification marks first (thick transparent green flat marker, no dark circles)
+        mark_color = QColor(34, 197, 94, 70)
+        mark_w = max(18.0, 22.0 * self.zoom_factor)
+        for idx, stroke in enumerate(self.mark_strokes):
+            screen_stroke = [self.chart_to_screen_coords(pt, x_up, y_up) for pt in stroke]
+            is_halo = (getattr(self, 'highlighted_mark_index', None) == idx)
+            self._draw_flat_highlighter_stroke(painter, screen_stroke, mark_w, mark_color, halo=is_halo)
+
+        if getattr(self, 'mark_mode_enabled', False) and getattr(self, 'current_mark_stroke', None):
+            screen_current = [self.chart_to_screen_coords(pt, x_up, y_up) for pt in self.current_mark_stroke]
+            self._draw_flat_highlighter_stroke(painter, screen_current, mark_w, mark_color, halo=False)
+
+        # Draw red discrepancy highlights
         for idx, stroke in enumerate(self.strokes):
             screen_stroke = [self.chart_to_screen_coords(pt, x_up, y_up) for pt in stroke]
             if getattr(self, 'highlighted_stroke_index', None) == idx:
@@ -779,6 +929,14 @@ class InteractiveChartWidget(QLabel):
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent):
+        # Middle mouse button drag panning
+        if event.button() == Qt.MiddleButton:
+            self.is_middle_panning = True
+            self.middle_pan_start = event.globalPosition().toPoint()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+
         if event.button() == Qt.LeftButton:
             sz_up = self.pixmap_updated.size() * self.zoom_factor if self.pixmap_updated else 1
             widget_size = self.size()
@@ -795,12 +953,16 @@ class InteractiveChartWidget(QLabel):
             elif getattr(self, 'error_mode_enabled', False):
                 self.error_point_selected.emit(local_pt)
                 return
-            # 3. Drawing mode
+            # 3. Drawing mode (Red highlight)
             elif self.drawing_mode:
                 self.current_stroke = [local_pt]
                 return
+            # 4. Mark mode (Green verification mark)
+            elif getattr(self, 'mark_mode_enabled', False):
+                self.current_mark_stroke = [local_pt]
+                return
 
-            # 4. Check if clicking on an existing note to MOVE / SELECT it!
+            # 5. Check if clicking on an existing note to MOVE / SELECT it!
             hit_note = self.hit_test_note(screen_pos)
             if hit_note:
                 self.selected_note = hit_note
@@ -817,7 +979,7 @@ class InteractiveChartWidget(QLabel):
                     self.note_selected.emit("")
                     self.update()
 
-            # 5. Check if clicking on an existing error to MOVE / SELECT it! (Requirement 6)
+            # 6. Check if clicking on an existing error to MOVE / SELECT it! (Requirement 6)
             hit_err = self.hit_test_error(screen_pos)
             if hit_err:
                 self.selected_error = hit_err
@@ -845,6 +1007,27 @@ class InteractiveChartWidget(QLabel):
             self.last_mouse_pos = event.pos()
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        # Middle mouse drag panning
+        if getattr(self, 'is_middle_panning', False):
+            delta = event.globalPosition().toPoint() - self.middle_pan_start
+            self.middle_pan_start = event.globalPosition().toPoint()
+            scroll_area = getattr(self, 'parent_scroll_area', None)
+            if not scroll_area:
+                p = self.parent()
+                while p:
+                    if isinstance(p, QScrollArea):
+                        scroll_area = p
+                        self.parent_scroll_area = p
+                        break
+                    p = p.parent()
+            if scroll_area:
+                h_bar = scroll_area.horizontalScrollBar()
+                v_bar = scroll_area.verticalScrollBar()
+                h_bar.setValue(h_bar.value() - delta.x())
+                v_bar.setValue(v_bar.value() - delta.y())
+            event.accept()
+            return
+
         screen_pos = QPointF(event.pos())
         sz_up = self.pixmap_updated.size() * self.zoom_factor if self.pixmap_updated else 1
         widget_size = self.size()
@@ -875,6 +1058,10 @@ class InteractiveChartWidget(QLabel):
         if self.drawing_mode and (event.buttons() & Qt.LeftButton) and self.pixmap_updated:
             self.current_stroke.append(local_pt)
             self.update()
+        elif getattr(self, 'mark_mode_enabled', False) and (event.buttons() & Qt.LeftButton) and self.pixmap_updated:
+            if not self.current_mark_stroke or (local_pt - self.current_mark_stroke[-1]).manhattanLength() >= 2.0:
+                self.current_mark_stroke.append(local_pt)
+                self.update()
         elif self.dragging and self.drag_mode_enabled:
             delta = event.pos() - self.last_mouse_pos
             self.last_mouse_pos = event.pos()
@@ -888,7 +1075,7 @@ class InteractiveChartWidget(QLabel):
                 self.rotation_changed.emit(self.rotation_old)
         else:
             # Hover cursor change for notes and errors
-            if not self.drawing_mode and not getattr(self, 'note_mode_enabled', False) and not getattr(self, 'error_mode_enabled', False) and not self.drag_mode_enabled:
+            if not self.drawing_mode and not getattr(self, 'mark_mode_enabled', False) and not getattr(self, 'note_mode_enabled', False) and not getattr(self, 'error_mode_enabled', False) and not self.drag_mode_enabled:
                 hit_note = self.hit_test_note(screen_pos)
                 hit_err = self.hit_test_error(screen_pos)
                 if hit_note or hit_err:
@@ -897,6 +1084,17 @@ class InteractiveChartWidget(QLabel):
                     self.setCursor(Qt.ArrowCursor)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MiddleButton and getattr(self, 'is_middle_panning', False):
+            self.is_middle_panning = False
+            if self.drawing_mode or getattr(self, 'mark_mode_enabled', False) or getattr(self, 'note_mode_enabled', False) or getattr(self, 'error_mode_enabled', False):
+                self.setCursor(Qt.CrossCursor)
+            elif self.drag_mode_enabled:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+
         if getattr(self, 'is_dragging_note', False):
             self.is_dragging_note = False
             self.setCursor(Qt.OpenHandCursor if self.selected_note else Qt.ArrowCursor)
@@ -911,6 +1109,11 @@ class InteractiveChartWidget(QLabel):
             if self.drawing_mode and self.current_stroke:
                 self.strokes.append(list(self.current_stroke))
                 self.current_stroke.clear()
+                self.update()
+                self.drawing_added.emit()
+            elif getattr(self, 'mark_mode_enabled', False) and getattr(self, 'current_mark_stroke', None):
+                self.mark_strokes.append(list(self.current_mark_stroke))
+                self.current_mark_stroke.clear()
                 self.update()
                 self.drawing_added.emit()
         self.dragging = False
@@ -933,16 +1136,83 @@ class InteractiveChartWidget(QLabel):
                     return
         super().mouseDoubleClickEvent(event)
 
+    def _is_dark_mode(self) -> bool:
+        if "#1E293B" in self.styleSheet():
+            return True
+        parent_tab = self.window().tab_comparison if hasattr(self.window(), 'tab_comparison') else None
+        if parent_tab and hasattr(parent_tab, 'btn_toggle_bg') and parent_tab.btn_toggle_bg.isChecked():
+            return True
+        return False
+
+    def _create_styled_context_menu(self) -> QMenu:
+        menu = QMenu(self)
+        if self._is_dark_mode():
+            menu.setStyleSheet("""
+                QMenu {
+                    background-color: #1E293B;
+                    color: #F8FAFC;
+                    border: 1px solid #475569;
+                    border-radius: 6px;
+                    padding: 4px;
+                }
+                QMenu::item {
+                    background-color: transparent;
+                    color: #F8FAFC;
+                    padding: 7px 24px 7px 14px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+                QMenu::item:selected {
+                    background-color: #0284C7;
+                    color: #FFFFFF;
+                    font-weight: bold;
+                }
+                QMenu::separator {
+                    height: 1px;
+                    background-color: #334155;
+                    margin: 4px 6px;
+                }
+            """)
+        else:
+            menu.setStyleSheet("""
+                QMenu {
+                    background-color: #FFFFFF;
+                    color: #0F172A;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 6px;
+                    padding: 4px;
+                }
+                QMenu::item {
+                    background-color: transparent;
+                    color: #0F172A;
+                    padding: 7px 24px 7px 14px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+                QMenu::item:selected {
+                    background-color: #0284C7;
+                    color: #FFFFFF;
+                    font-weight: bold;
+                }
+                QMenu::separator {
+                    height: 1px;
+                    background-color: #E2E8F0;
+                    margin: 4px 6px;
+                }
+            """)
+        return menu
+
     def contextMenuEvent(self, event):
         screen_pos = QPointF(event.pos())
         parent_tab = self.window().tab_comparison if hasattr(self.window(), 'tab_comparison') else None
         
         hit_note = self.hit_test_note(screen_pos)
         if hit_note:
-            from PySide6.QtWidgets import QMenu
-            menu = QMenu(self)
-            action_del = menu.addAction(f"Delete Note {hit_note.get('id', '')}")
-            action_edit = menu.addAction(f"Edit Note {hit_note.get('id', '')}")
+            menu = self._create_styled_context_menu()
+            action_edit = menu.addAction(f"✏️  Edit Note {hit_note.get('id', '')}")
+            action_del = menu.addAction(f"🗑️  Delete Note {hit_note.get('id', '')}")
             selected_action = menu.exec(event.globalPos())
             if parent_tab:
                 if selected_action == action_del:
@@ -954,10 +1224,9 @@ class InteractiveChartWidget(QLabel):
 
         hit_err = self.hit_test_error(screen_pos)
         if hit_err:
-            from PySide6.QtWidgets import QMenu
-            menu = QMenu(self)
-            action_del = menu.addAction(f"Delete Error {hit_err.get('id', '')}")
-            action_edit = menu.addAction(f"Edit Error {hit_err.get('id', '')}")
+            menu = self._create_styled_context_menu()
+            action_edit = menu.addAction(f"✏️  Edit Error {hit_err.get('id', '')}")
+            action_del = menu.addAction(f"🗑️  Delete Error {hit_err.get('id', '')}")
             selected_action = menu.exec(event.globalPos())
             if parent_tab:
                 if selected_action == action_del:
@@ -993,21 +1262,25 @@ class ComparisonTab(QWidget):
         self.label_updated = QLabel("<b>Updated chart:</b> <span style='color: #0284C7;'>[No file selected]</span>")
         self.label_updated.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 6px; font-size: 13px;")
         btn_browse_updated = QPushButton("Browse...")
+        btn_browse_updated.setToolTip("Browse and select the updated aeronautical chart PDF file")
         btn_browse_updated.setMinimumWidth(85)
         btn_browse_updated.clicked.connect(self.browse_chart_updated)
         
         self.label_old = QLabel("<b>Old chart:</b> <span style='color: #475569;'>[No file selected]</span>")
         self.label_old.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 6px; font-size: 13px;")
         btn_browse_old = QPushButton("Browse...")
+        btn_browse_old.setToolTip("Browse and select the previous baseline chart PDF file")
         btn_browse_old.setMinimumWidth(85)
         btn_browse_old.clicked.connect(self.browse_chart_old)
 
         self.btn_load = QPushButton("Load Charts")
+        self.btn_load.setToolTip("Load and render both charts for visual comparison")
         self.btn_load.setEnabled(False)
         self.btn_load.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
         self.btn_load.clicked.connect(self.load_charts)
 
         self.btn_reset_session = QPushButton("Reset Session")
+        self.btn_reset_session.setToolTip("Clear current comparison view and loaded chart documents")
         self.btn_reset_session.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
         self.btn_reset_session.clicked.connect(self.reset_session)
 
@@ -1041,6 +1314,7 @@ class ComparisonTab(QWidget):
         row_left_upper.addWidget(self.btn_toggle_drag)
 
         self.btn_reset_align = QPushButton("Reset Alignment")
+        self.btn_reset_align.setToolTip("Reset alignment offsets and rotation of Old chart back to original position")
         self.btn_reset_align.setEnabled(False)
         self.btn_reset_align.clicked.connect(self.reset_alignment)
         row_left_upper.addWidget(self.btn_reset_align)
@@ -1069,6 +1343,7 @@ class ComparisonTab(QWidget):
         row_left_lower.addWidget(self.btn_rotate_90)
 
         self.lbl_angle = QLabel("Angle: 0.0°")
+        self.lbl_angle.setToolTip("Current rotation angle applied to Old chart")
         self.lbl_angle.setStyleSheet("color: #475569; font-weight: bold; font-size: 12px; padding-left: 2px;")
         row_left_lower.addWidget(self.lbl_angle)
         row_left_lower.addStretch()
@@ -1084,15 +1359,18 @@ class ComparisonTab(QWidget):
         row_cleft_upper = QHBoxLayout()
         row_cleft_upper.setSpacing(6)
         self.btn_flicker = QPushButton("Start Flicker")
+        self.btn_flicker.setToolTip("Toggle automatic alternating flicker between Updated and Old charts")
         self.btn_flicker.setStyleSheet(FLICKER_BTN_STYLE_OFF)
         self.btn_flicker.setEnabled(False)
         self.btn_flicker.clicked.connect(self.toggle_flicker)
         row_cleft_upper.addWidget(self.btn_flicker)
 
         lbl_interval = QLabel("Interval:")
+        lbl_interval.setToolTip("Select flicker switching interval (speed)")
         row_cleft_upper.addWidget(lbl_interval)
 
         self.combo_interval = QComboBox()
+        self.combo_interval.setToolTip("Select flicker switching interval (speed)")
         self.combo_interval.addItems(["0.2s", "0.5s", "1.0s", "2.0s", "3.0s"])
         self.combo_interval.setCurrentIndex(2)
         self.combo_interval.currentIndexChanged.connect(self.change_flicker_interval)
@@ -1104,11 +1382,13 @@ class ComparisonTab(QWidget):
         row_cleft_lower = QHBoxLayout()
         row_cleft_lower.setSpacing(6)
         self.btn_show_updated = QPushButton("Show Updated")
+        self.btn_show_updated.setToolTip("Display only the Updated chart")
         self.btn_show_updated.setEnabled(False)
         self.btn_show_updated.clicked.connect(lambda: self.set_view_mode("Updated chart"))
         row_cleft_lower.addWidget(self.btn_show_updated)
 
         self.btn_show_old = QPushButton("Show Old")
+        self.btn_show_old.setToolTip("Display only the Old baseline chart")
         self.btn_show_old.setEnabled(False)
         self.btn_show_old.clicked.connect(lambda: self.set_view_mode("Old chart"))
         row_cleft_lower.addWidget(self.btn_show_old)
@@ -1121,22 +1401,32 @@ class ComparisonTab(QWidget):
         col_center_right = QVBoxLayout()
         col_center_right.setSpacing(6)
 
-        # CenterRight Upper (Picture 15)
+        # CenterRight Upper: Draw (Red), Mark (Green), and Clear Drawings
         row_cright_upper = QHBoxLayout()
         row_cright_upper.setSpacing(6)
-        self.btn_draw = QPushButton("Draw Highlight: OFF")
+        self.btn_draw = QPushButton("Draw: OFF")
+        self.btn_draw.setToolTip("Toggle Drawing Mode: Draw red discrepancy highlight lines on chart")
+        self.btn_draw.setStyleSheet("color: #EF4444; font-weight: bold;")
         self.btn_draw.setEnabled(False)
         self.btn_draw.clicked.connect(self.toggle_drawing_mode)
         row_cright_upper.addWidget(self.btn_draw)
 
+        self.btn_mark = QPushButton("Mark: OFF")
+        self.btn_mark.setToolTip("Toggle Mark Mode: Draw thick transparent green lines to mark checked places (excluded from report screenshots)")
+        self.btn_mark.setStyleSheet("color: #10B981; font-weight: bold;")
+        self.btn_mark.setEnabled(False)
+        self.btn_mark.clicked.connect(self.toggle_mark_mode)
+        row_cright_upper.addWidget(self.btn_mark)
+
         self.btn_clear_draw = QPushButton("Clear Drawings")
+        self.btn_clear_draw.setToolTip("Open Clear Drawings dialog to remove selected highlight drawings or marks")
         self.btn_clear_draw.setEnabled(False)
         self.btn_clear_draw.clicked.connect(self.prompt_clear_drawings)
         row_cright_upper.addWidget(self.btn_clear_draw)
         row_cright_upper.addStretch()
         col_center_right.addLayout(row_cright_upper)
 
-        # CenterRight Lower (Picture 16)
+        # CenterRight Lower: Add Note and Remove Note
         row_cright_lower = QHBoxLayout()
         row_cright_lower.setSpacing(6)
         self.btn_note = QPushButton("Add Note: OFF")
@@ -1154,29 +1444,14 @@ class ComparisonTab(QWidget):
         row_cright_lower.addStretch()
         col_center_right.addLayout(row_cright_lower)
 
-        # Requirements 1 & 2: Ensure identical button sizes for (Draw Highlight <-> Add Note) and (Clear Drawings <-> Remove Note)
-        # Uses bold font metrics with ample padding so text is never truncated on any DPI
-        btn_font = self.font()
-        btn_font.setBold(True)
-        fm = QFontMetrics(btn_font)
-        pad = 36
-        w_highlight_note = max(
-            fm.horizontalAdvance("Draw Highlight: OFF") + pad,
-            fm.horizontalAdvance("Draw Highlight: ON") + pad,
-            fm.horizontalAdvance("Add Note: OFF") + pad,
-            fm.horizontalAdvance("Add Note: ON") + pad,
-            185
-        )
-        w_clear_remove = max(
-            fm.horizontalAdvance("Clear Drawings") + pad,
-            fm.horizontalAdvance("Remove Note") + pad,
-            145
-        )
-
-        self.btn_draw.setFixedWidth(w_highlight_note)
-        self.btn_note.setFixedWidth(w_highlight_note)
-        self.btn_clear_draw.setFixedWidth(w_clear_remove)
-        self.btn_remove_note.setFixedWidth(w_clear_remove)
+        # Symmetrical balancing:
+        # Upper row: Draw (95px) + 6px spacing + Mark (95px) + 6px spacing + Clear (145px) = 347px
+        # Lower row: Add Note (196px) + 6px spacing + Remove Note (145px) = 347px
+        self.btn_draw.setFixedWidth(95)
+        self.btn_mark.setFixedWidth(95)
+        self.btn_clear_draw.setFixedWidth(145)
+        self.btn_note.setFixedWidth(196)
+        self.btn_remove_note.setFixedWidth(145)
 
         toolbar_section.addLayout(col_center_right)
 
@@ -1199,6 +1474,7 @@ class ComparisonTab(QWidget):
         row_right_lower = QHBoxLayout()
         row_right_lower.setSpacing(6)
         self.btn_save_annotated = QPushButton("Save Annotated Chart to Report")
+        self.btn_save_annotated.setToolTip("Save screenshot of the annotated updated chart to report evidence list")
         self.btn_save_annotated.setEnabled(False)
         self.btn_save_annotated.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
         self.btn_save_annotated.clicked.connect(self.save_annotated_chart)
@@ -1212,8 +1488,11 @@ class ComparisonTab(QWidget):
         layout.addLayout(toolbar_section)
 
         sub_toolbar = QHBoxLayout()
-        sub_toolbar.addWidget(QLabel("Overlay Balance (Updated/Old):"))
+        lbl_overlay = QLabel("Overlay Balance (Updated/Old):")
+        lbl_overlay.setToolTip("Adjust overlay transparency blend between Updated and Old charts")
+        sub_toolbar.addWidget(lbl_overlay)
         self.slider_opacity = QSlider(Qt.Horizontal)
+        self.slider_opacity.setToolTip("Adjust overlay transparency blend between Updated and Old charts")
         self.slider_opacity.setRange(0, 100)
         self.slider_opacity.setValue(50)
         self.slider_opacity.setEnabled(False)
@@ -1222,28 +1501,58 @@ class ComparisonTab(QWidget):
 
         sub_toolbar.addSpacing(20)
         self.label_zoom = QLabel("Zoom: 100%")
+        self.label_zoom.setToolTip("Current visual magnification level")
         btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setToolTip("Zoom in chart view")
         btn_zoom_in.setFixedSize(32, 28)
         btn_zoom_in.setStyleSheet("QPushButton { font-size: 18px; font-weight: bold; padding: 0px; margin: 0px; text-align: center; }")
         btn_zoom_in.clicked.connect(self.zoom_in)
 
         btn_zoom_out = QPushButton("-")
+        btn_zoom_out.setToolTip("Zoom out chart view")
         btn_zoom_out.setFixedSize(32, 28)
         btn_zoom_out.setStyleSheet("QPushButton { font-size: 20px; font-weight: bold; padding: 0px; margin: 0px; text-align: center; }")
         btn_zoom_out.clicked.connect(self.zoom_out)
 
         btn_fit = QPushButton("Fit")
+        btn_fit.setToolTip("Fit chart view to default 100% zoom scale")
         btn_fit.clicked.connect(self.reset_zoom)
 
         sub_toolbar.addWidget(self.label_zoom)
         sub_toolbar.addWidget(btn_zoom_out)
         sub_toolbar.addWidget(btn_zoom_in)
         sub_toolbar.addWidget(btn_fit)
+
+        sub_toolbar.addSpacing(16)
+        self.btn_toggle_bg = QPushButton("🌙 Dark View")
+        self.btn_toggle_bg.setCheckable(True)
+        self.btn_toggle_bg.setToolTip("Toggle chart viewer background between Light and Dark grey")
+        self.btn_toggle_bg.setStyleSheet("""
+            QPushButton {
+                background-color: #334155;
+                color: #F8FAFC;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 4px 10px;
+            }
+            QPushButton:hover {
+                background-color: #1E293B;
+            }
+            QPushButton:checked {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_toggle_bg.clicked.connect(self.toggle_dark_background)
+        sub_toolbar.addWidget(self.btn_toggle_bg)
+        sub_toolbar.addStretch()
+
         layout.addLayout(sub_toolbar)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.chart_display = InteractiveChartWidget()
+        self.chart_display.parent_scroll_area = self.scroll_area
         self.chart_display.drawing_added.connect(self.on_drawing_added)
         self.chart_display.rotation_changed.connect(self.on_rotation_changed)
         self.chart_display.note_point_selected.connect(self.on_note_point_selected)
@@ -1253,7 +1562,7 @@ class ComparisonTab(QWidget):
         self.scroll_area.setWidget(self.chart_display)
         layout.addWidget(self.scroll_area)
 
-        # Requirement 2, 4, 6: Floating transparent buttons on the left side of the chart area (Blue Theme)
+        # Floating transparent buttons on the left side of the chart area (Blue Theme)
         self.floating_panel = QWidget(self.scroll_area.viewport())
         self.floating_panel.setStyleSheet("background: transparent; border: none;")
         fp_layout = QVBoxLayout(self.floating_panel)
@@ -1282,11 +1591,22 @@ class ComparisonTab(QWidget):
         self.float_btn_draw.setCheckable(True)
         self.float_btn_draw.setEnabled(False)
         self.float_btn_draw.setStyleSheet(FLOATING_BTN_STYLE)
-        self.float_btn_draw.setToolTip("Drawing Mode (Highlight discrepancy)")
+        self.float_btn_draw.setToolTip("Drawing Mode (Highlight discrepancy with red stroke)")
         self.float_btn_draw.clicked.connect(self.toggle_drawing_mode)
         fp_layout.addWidget(self.float_btn_draw)
 
-        # Requirement 4: Monochrome symbol style matching ✥, ↻, ✎, ⌫
+        # Transparent floating button to draw green line after drawing mode button
+        self.float_btn_mark = QPushButton()
+        self.float_btn_mark.setIcon(create_marker_icon(24))
+        self.float_btn_mark.setIconSize(QSize(24, 24))
+        self.float_btn_mark.setFixedSize(42, 42)
+        self.float_btn_mark.setCheckable(True)
+        self.float_btn_mark.setEnabled(False)
+        self.float_btn_mark.setStyleSheet(FLOATING_BTN_STYLE)
+        self.float_btn_mark.setToolTip("Mark Mode (Draw thick transparent green verification line)")
+        self.float_btn_mark.clicked.connect(self.toggle_mark_mode)
+        fp_layout.addWidget(self.float_btn_mark)
+
         self.float_btn_note = QPushButton("🗈")
         self.float_btn_note.setFixedSize(42, 42)
         self.float_btn_note.setCheckable(True)
@@ -1296,7 +1616,6 @@ class ComparisonTab(QWidget):
         self.float_btn_note.clicked.connect(self.toggle_note_mode)
         fp_layout.addWidget(self.float_btn_note)
 
-        # Requirement 2: Crisp monochrome outline warning triangle matching the blue vector style of floating buttons
         self.float_btn_error = QPushButton()
         self.float_btn_error.setIcon(create_warning_icon(24))
         self.float_btn_error.setIconSize(QSize(24, 24))
@@ -1308,16 +1627,14 @@ class ComparisonTab(QWidget):
         self.float_btn_error.clicked.connect(self.toggle_error_pin_mode)
         fp_layout.addWidget(self.float_btn_error)
 
-        # Requirement 4: Updated clear button triggering drawing selection dialog
         self.float_btn_clear = QPushButton("⌫")
         self.float_btn_clear.setFixedSize(42, 42)
         self.float_btn_clear.setEnabled(False)
         self.float_btn_clear.setStyleSheet(FLOATING_BTN_STYLE)
-        self.float_btn_clear.setToolTip("Clear Drawings")
+        self.float_btn_clear.setToolTip("Clear Drawings (Select and remove drawings or marks)")
         self.float_btn_clear.clicked.connect(self.prompt_clear_drawings)
         fp_layout.addWidget(self.float_btn_clear)
 
-        # Requirement 5: Save Annotated Chart floating button matching symbol style
         self.float_btn_save = QPushButton("🖫")
         self.float_btn_save.setFixedSize(42, 42)
         self.float_btn_save.setEnabled(False)
@@ -1339,12 +1656,29 @@ class ComparisonTab(QWidget):
         return super().eventFilter(watched, event)
 
     def on_drawing_added(self):
-        self.btn_save_annotated.setEnabled(True)
-        if hasattr(self, 'float_btn_save'):
-            self.float_btn_save.setEnabled(True)
-        self.btn_clear_draw.setEnabled(True)
+        has_annotated = (len(self.chart_display.strokes) > 0) or (len(self.chart_display.notes) > 0) or (len(self.chart_display.error_markers) > 0)
+        if has_annotated:
+            self.btn_save_annotated.setEnabled(True)
+            if hasattr(self, 'float_btn_save'):
+                self.float_btn_save.setEnabled(True)
+        has_drawings = (len(self.chart_display.strokes) > 0) or (len(self.chart_display.mark_strokes) > 0)
+        self.btn_clear_draw.setEnabled(has_drawings)
         if hasattr(self, 'float_btn_clear'):
-            self.float_btn_clear.setEnabled(True)
+            self.float_btn_clear.setEnabled(has_drawings)
+
+    def toggle_dark_background(self):
+        """Requirement 3: Toggles dark grey background of main comparison window area."""
+        is_dark = self.btn_toggle_bg.isChecked()
+        if is_dark:
+            self.btn_toggle_bg.setText("☀️ Light View")
+            self.chart_display.setStyleSheet("background-color: #1E293B; border: 1px solid #334155; border-radius: 6px;")
+            self.scroll_area.setStyleSheet("QScrollArea { background-color: #0F172A; border: 1px solid #334155; }")
+            self.scroll_area.viewport().setStyleSheet("background-color: #0F172A;")
+        else:
+            self.btn_toggle_bg.setText("🌙 Dark View")
+            self.chart_display.setStyleSheet("background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px;")
+            self.scroll_area.setStyleSheet("")
+            self.scroll_area.viewport().setStyleSheet("")
 
     def save_annotated_chart(self):
         pixmap = self.chart_display.get_annotated_pixmap()
@@ -1430,6 +1764,7 @@ class ComparisonTab(QWidget):
         self.btn_rotate_cw.setEnabled(True)
         self.btn_rotate_90.setEnabled(True)
         self.btn_draw.setEnabled(True)
+        self.btn_mark.setEnabled(True)
         self.btn_note.setEnabled(True)
         self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
         self.btn_pin_error.setEnabled(True)
@@ -1439,6 +1774,7 @@ class ComparisonTab(QWidget):
         self.float_btn_drag.setEnabled(True)
         self.float_btn_rotate.setEnabled(True)
         self.float_btn_draw.setEnabled(True)
+        self.float_btn_mark.setEnabled(True)
         self.float_btn_note.setEnabled(True)
         self.float_btn_error.setEnabled(True)
         self.float_btn_clear.setEnabled(True)
@@ -1492,6 +1828,7 @@ class ComparisonTab(QWidget):
         self.btn_rotate_90.setEnabled(False)
         self.lbl_angle.setText("Angle: 0.0°")
         self.btn_draw.setEnabled(False)
+        self.btn_mark.setEnabled(False)
         self.btn_note.setEnabled(False)
         self.btn_remove_note.setEnabled(False)
         self.btn_remove_note.setText("Remove Note")
@@ -1509,6 +1846,8 @@ class ComparisonTab(QWidget):
         self.float_btn_rotate.setEnabled(False)
         self.float_btn_draw.setEnabled(False)
         self.float_btn_draw.setChecked(False)
+        self.float_btn_mark.setEnabled(False)
+        self.float_btn_mark.setChecked(False)
         self.float_btn_note.setEnabled(False)
         self.float_btn_note.setChecked(False)
         self.float_btn_error.setEnabled(False)
@@ -1536,16 +1875,17 @@ class ComparisonTab(QWidget):
 
     def set_active_tool_mode(self, mode_name: str):
         """Unified mode controller ensuring tool mutually exclusive states."""
-        if mode_name in ("drag", "draw", "note", "error") and self.flicker_manager.timer.isActive():
+        if mode_name in ("drag", "draw", "mark", "note", "error") and self.flicker_manager.timer.isActive():
             self.flicker_manager.pause()
             self.set_flicker_ui_off()
 
         self.chart_display.drag_mode_enabled = (mode_name == "drag")
         self.chart_display.drawing_mode = (mode_name == "draw")
+        self.chart_display.mark_mode_enabled = (mode_name == "mark")
         self.chart_display.note_mode_enabled = (mode_name == "note")
         self.chart_display.error_mode_enabled = (mode_name == "error")
 
-        if mode_name in ("draw", "note", "error"):
+        if mode_name in ("draw", "mark", "note", "error"):
             self.chart_display.setCursor(Qt.CrossCursor)
         elif mode_name == "drag":
             self.chart_display.setCursor(Qt.OpenHandCursor)
@@ -1563,13 +1903,22 @@ class ComparisonTab(QWidget):
             self.float_btn_drag.setChecked(False)
 
         if mode_name == "draw":
-            self.btn_draw.setText("Draw Highlight: ON")
-            self.btn_draw.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+            self.btn_draw.setText("Draw: ON")
+            self.btn_draw.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
             self.float_btn_draw.setChecked(True)
         else:
-            self.btn_draw.setText("Draw Highlight: OFF")
-            self.btn_draw.setStyleSheet("")
+            self.btn_draw.setText("Draw: OFF")
+            self.btn_draw.setStyleSheet("color: #EF4444; font-weight: bold;")
             self.float_btn_draw.setChecked(False)
+
+        if mode_name == "mark":
+            self.btn_mark.setText("Mark: ON")
+            self.btn_mark.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+            self.float_btn_mark.setChecked(True)
+        else:
+            self.btn_mark.setText("Mark: OFF")
+            self.btn_mark.setStyleSheet("color: #10B981; font-weight: bold;")
+            self.float_btn_mark.setChecked(False)
 
         if mode_name == "note":
             self.btn_note.setText("Add Note: ON")
@@ -1595,6 +1944,11 @@ class ComparisonTab(QWidget):
 
     def toggle_drawing_mode(self, *args):
         new_mode = "none" if self.chart_display.drawing_mode else "draw"
+        self.set_active_tool_mode(new_mode)
+
+    def toggle_mark_mode(self, *args):
+        """Requirement 4: Toggles Mark mode for drawing thick transparent green lines."""
+        new_mode = "none" if self.chart_display.mark_mode_enabled else "mark"
         self.set_active_tool_mode(new_mode)
 
     def toggle_note_mode(self, *args, **kwargs):
@@ -1761,14 +2115,15 @@ class ComparisonTab(QWidget):
             self.float_btn_save.setEnabled(True)
 
     def prompt_clear_drawings(self):
-        """Requirement 4: Allows user to choose which drawing shall be removed or clear all."""
-        if not self.chart_display.strokes:
-            QMessageBox.information(self, "No Drawings", "There are no highlight drawings on the chart to remove.")
+        """Allows user to choose which highlight drawing or green mark shall be removed, or clear all."""
+        has_drawings = (len(self.chart_display.strokes) > 0) or (len(self.chart_display.mark_strokes) > 0)
+        if not has_drawings:
+            QMessageBox.information(self, "No Drawings", "There are no highlight drawings or verification marks on the chart to remove.")
             return
 
         dialog = ClearDrawingsDialog(self.chart_display, self)
         dialog.exec()
-        has_drawings = len(self.chart_display.strokes) > 0
+        has_drawings = (len(self.chart_display.strokes) > 0) or (len(self.chart_display.mark_strokes) > 0)
         self.btn_clear_draw.setEnabled(has_drawings)
         if hasattr(self, 'float_btn_clear'):
             self.float_btn_clear.setEnabled(has_drawings)

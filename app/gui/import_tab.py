@@ -28,7 +28,9 @@ class ImportTab(QWidget):
         group_updated = QGroupBox("Updated Charts")
         vbox_up = QVBoxLayout()
         self.list_updated = QListWidget()
+        self.list_updated.setToolTip("List of uploaded new/updated aeronautical chart PDF files")
         btn_upload_up = QPushButton("Upload Updated PDFs")
+        btn_upload_up.setToolTip("Select and batch upload new/updated chart PDF files")
         btn_upload_up.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
         btn_upload_up.clicked.connect(self.upload_updated_charts)
         
@@ -41,7 +43,9 @@ class ImportTab(QWidget):
         group_old = QGroupBox("Old Charts")
         vbox_old = QVBoxLayout()
         self.list_old = QListWidget()
+        self.list_old.setToolTip("List of uploaded previous baseline chart PDF files")
         btn_upload_old = QPushButton("Upload Old PDFs")
+        btn_upload_old.setToolTip("Select and batch upload previous baseline chart PDF files")
         btn_upload_old.setStyleSheet("background-color: #64748B; color: white; font-weight: bold;")
         btn_upload_old.clicked.connect(self.upload_old_charts)
         
@@ -57,8 +61,11 @@ class ImportTab(QWidget):
         mapping_layout = QHBoxLayout()
 
         self.combo_map_updated = QComboBox()
+        self.combo_map_updated.setToolTip("Select an updated chart for pairing")
         self.combo_map_old = QComboBox()
+        self.combo_map_old.setToolTip("Select corresponding baseline old chart for pairing")
         btn_link = QPushButton("Link Selected Pair")
+        btn_link.setToolTip("Create a comparison mapping pair between the selected Updated and Old charts")
         btn_link.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
         btn_link.clicked.connect(self.link_charts)
 
@@ -76,15 +83,18 @@ class ImportTab(QWidget):
         vbox_map_disp = QVBoxLayout()
         
         self.list_mappings = QListWidget()
+        self.list_mappings.setToolTip("Double-click any mapped pair to immediately load them into the Chart Comparison tab")
         self.list_mappings.itemDoubleClicked.connect(self.on_mapping_item_double_clicked)
         vbox_map_disp.addWidget(self.list_mappings)
 
         map_btn_layout = QHBoxLayout()
         btn_edit_map = QPushButton("Edit Selected Mapping")
+        btn_edit_map.setToolTip("Select the mapped pair to adjust its matching baseline chart")
         btn_edit_map.setStyleSheet("background-color: #D97706; color: white; font-weight: bold;")
         btn_edit_map.clicked.connect(self.edit_selected_mapping)
 
         btn_remove_map = QPushButton("Remove Selected Mapping")
+        btn_remove_map.setToolTip("Remove the selected mapping pair from the list")
         btn_remove_map.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold;")
         btn_remove_map.clicked.connect(self.remove_selected_mapping)
 

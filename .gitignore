@@ -31,6 +31,8 @@ temp_evidence_*.png
 ~$*.docx
 ~$*.pptx
 ~$*.xlsx
+~*
+*.tmp
 New Microsoft Word Document.docx
 
 # OS files
