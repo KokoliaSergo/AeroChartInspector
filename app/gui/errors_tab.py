@@ -18,38 +18,51 @@ class ErrorsTab(QWidget):
         self.init_ui()
 
     def get_next_error_id(self) -> str:
-        existing_ids = {e.id for e in self.errors_list}
+        """Sequential ID generator for errors ERR-001, ERR-002, etc. based on currently registered errors."""
+        existing_ids = {e.id for e in self.errors_list if e.id.startswith("ERR-")}
+        parent_win = self.window()
+        tab_comp = getattr(parent_win, 'tab_comparison', None)
+        if tab_comp and hasattr(tab_comp, 'chart_display') and hasattr(tab_comp.chart_display, 'error_markers'):
+            for m in tab_comp.chart_display.error_markers:
+                m_id = m.get("id", "")
+                if m_id.startswith("ERR-"):
+                    existing_ids.add(m_id)
+
         max_existing = 0
-        for e in self.errors_list:
-            if e.id.startswith("ERR-"):
-                try:
-                    num = int(e.id.split("-")[1])
-                    if num > max_existing:
-                        max_existing = num
-                except (ValueError, IndexError):
-                    pass
-        candidate = max(self._highest_id_num, max_existing) + 1
+        for err_id in existing_ids:
+            try:
+                num = int(err_id.split("-")[1])
+                if num > max_existing:
+                    max_existing = num
+            except (ValueError, IndexError):
+                pass
+        candidate = max_existing + 1
         while f"ERR-{candidate:03d}" in existing_ids:
             candidate += 1
-        self._highest_id_num = candidate
         return f"ERR-{candidate:03d}"
 
     def get_next_note_id(self) -> str:
-        """Sequential ID generator for chart notes NT-001, NT-002, etc."""
-        existing_ids = {e.id for e in self.errors_list}
+        """Sequential ID generator for chart notes NT-001, NT-002, etc. based on currently registered notes."""
+        existing_ids = {e.id for e in self.errors_list if e.id.startswith("NT-")}
+        parent_win = self.window()
+        tab_comp = getattr(parent_win, 'tab_comparison', None)
+        if tab_comp and hasattr(tab_comp, 'chart_display') and hasattr(tab_comp.chart_display, 'notes'):
+            for n in tab_comp.chart_display.notes:
+                n_id = n.get("id", "")
+                if n_id.startswith("NT-"):
+                    existing_ids.add(n_id)
+
         max_existing = 0
-        for e in self.errors_list:
-            if e.id.startswith("NT-"):
-                try:
-                    num = int(e.id.split("-")[1])
-                    if num > max_existing:
-                        max_existing = num
-                except (ValueError, IndexError):
-                    pass
-        candidate = max(self._highest_note_num, max_existing) + 1
+        for note_id in existing_ids:
+            try:
+                num = int(note_id.split("-")[1])
+                if num > max_existing:
+                    max_existing = num
+            except (ValueError, IndexError):
+                pass
+        candidate = max_existing + 1
         while f"NT-{candidate:03d}" in existing_ids:
             candidate += 1
-        self._highest_note_num = candidate
         return f"NT-{candidate:03d}"
 
     def init_ui(self):
