@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime
 from PySide6.QtWidgets import (
@@ -6,8 +7,8 @@ from PySide6.QtWidgets import (
     QDialog, QCalendarWidget, QHBoxLayout, QListWidget, QListWidgetItem,
     QScrollArea, QFrame
 )
-from PySide6.QtCore import QDate, Qt, QSize
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QDate, Qt, QSize, QUrl
+from PySide6.QtGui import QIcon, QPixmap, QDesktopServices
 from app.reports.report_generator import ReportGenerator
 
 class CalendarDialog(QDialog):
@@ -474,6 +475,20 @@ class ReportTab(QWidget):
             
             success, err = ReportGenerator.generate_pdf_report(filename, report_info, err_tab.errors_list, evidence_pixmaps)
             if success:
-                QMessageBox.information(self, "Success", f"Professional validation report successfully generated for {inspector_name}:\n{filename}")
+                folder_path = os.path.dirname(os.path.abspath(filename))
+                folder_url = QUrl.fromLocalFile(folder_path).toString()
+
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Success")
+                msg_box.setIcon(QMessageBox.Information)
+                msg_box.setTextFormat(Qt.RichText)
+                msg_box.setText(f'Validation report successfully generated:<br><br><a href="{folder_url}" style="color: #0284C7; font-weight: bold; text-decoration: underline;">{folder_path}</a>')
+                for lbl in msg_box.findChildren(QLabel):
+                    lbl.setOpenExternalLinks(True)
+                btn_open = msg_box.addButton("Open Folder", QMessageBox.ActionRole)
+                msg_box.addButton(QMessageBox.Ok)
+                msg_box.exec()
+                if msg_box.clickedButton() == btn_open:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(folder_path))
             else:
                 QMessageBox.critical(self, "Error", f"Failed to generate report: {err}")
