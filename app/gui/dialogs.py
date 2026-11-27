@@ -60,7 +60,7 @@ class AddErrorDialog(QDialog):
         suggestions = []
         if self.default_chart_name:
             suggestions.append(self.default_chart_name)
-        suggestions.extend(["Updated chart", "Old chart", "Both"])
+        suggestions.extend(["Old chart", "Both"])
         
         seen = set()
         unique_suggestions = [x for x in suggestions if not (x in seen or seen.add(x))]
@@ -121,7 +121,7 @@ class AddErrorDialog(QDialog):
             "id": self.error_id_str,
             "type": self.combo_type.currentText(),
             "description": self.txt_desc.toPlainText().strip(),
-            "chart": self.combo_chart.currentText().strip() or "Updated chart",
+            "chart": self.combo_chart.currentText().strip() or "Old chart",
             "severity": self.combo_severity.currentText(),
             "comments": self.txt_comments.toPlainText().strip()
         }

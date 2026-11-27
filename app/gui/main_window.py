@@ -5,6 +5,7 @@ from app.gui.import_tab import ImportTab
 from app.gui.comparison_tab import ComparisonTab
 from app.gui.errors_tab import ErrorsTab
 from app.gui.report_tab import ReportTab
+from app.gui.contact_tab import ContactTab
 from app.pdf.pdf_loader import PDFLoader
 from app.config.settings import APP_NAME, VERSION, get_app_icon_path
 
@@ -31,11 +32,13 @@ class MainWindow(QMainWindow):
         self.tab_comparison = ComparisonTab()
         self.tab_errors = ErrorsTab()
         self.tab_report = ReportTab()
+        self.tab_contact = ContactTab()
         
         self.tabs.addTab(self.tab_import, "Import")
         self.tabs.addTab(self.tab_comparison, "Chart Comparison")
         self.tabs.addTab(self.tab_errors, "Errors")
         self.tabs.addTab(self.tab_report, "Report")
+        self.tabs.addTab(self.tab_contact, "Contact")
         
         # Status Bar
         self.status_bar = QStatusBar()

@@ -7,12 +7,12 @@ from app.config.theme import AVIATION_LIGHT_THEME
 from app.config.settings import get_app_icon_path
 
 class ToolTipDelayStyle(QProxyStyle):
-    """Enforces 3-second hover delay before pop-up tooltips appear on buttons and controls."""
+    """Enforces 2-second hover delay before pop-up tooltips appear on buttons and controls."""
     def styleHint(self, hint, option=None, widget=None, returnData=None):
         if hint == QStyle.SH_ToolTip_WakeUpDelay:
-            return 3000  # 3000 ms = 3 seconds hover delay
+            return 2000  # 2000 ms = 2 seconds hover delay
         if hint == QStyle.SH_ToolTip_FallAsleepDelay:
-            return 0     # Requires 3 seconds hover on every button
+            return 0     # Requires 2 seconds hover on every button
         return super().styleHint(hint, option, widget, returnData)
 
 def main():

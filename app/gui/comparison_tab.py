@@ -383,7 +383,7 @@ class ClearDrawingsDialog(QDialog):
         self.btn_remove.clicked.connect(self.remove_selected)
         btn_layout.addWidget(self.btn_remove)
 
-        self.btn_clear_all = QPushButton("Clear All Drawings & Marks")
+        self.btn_clear_all = QPushButton("Clear All")
         self.btn_clear_all.setStyleSheet("QPushButton { background-color: #F59E0B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; }")
         self.btn_clear_all.clicked.connect(self.clear_all)
         btn_layout.addWidget(self.btn_clear_all)
@@ -512,10 +512,12 @@ class InteractiveChartWidget(QLabel):
         
         self.selected_note = None
         self.is_dragging_note = False
+        self.drag_note_part = "box"  # "pin" or "box"
         self.note_drag_offset = QPointF(0, 0)
         
         self.selected_error = None
         self.is_dragging_error = False
+        self.drag_error_part = "box"  # "pin" or "box"
         self.error_drag_offset = QPointF(0, 0)
         
         self.dragging = False
@@ -620,7 +622,13 @@ class InteractiveChartWidget(QLabel):
         self.highlighted_mark_index = None
         self.update()
 
-    def _get_note_bubble_rect(self, scr_pt: QPointF, note_id: str, text: str, bounds: QRectF = None) -> QRectF:
+    def _get_leader_line_intersection(self, pin_pt: QPointF, rect: QRectF) -> QPointF:
+        """Finds the nearest point on the rectangle boundary to connect a leader line to pin_pt."""
+        tx = min(rect.right(), max(rect.left(), pin_pt.x()))
+        ty = min(rect.bottom(), max(rect.top(), pin_pt.y()))
+        return QPointF(tx, ty)
+
+    def _get_note_bubble_rect(self, box_pt: QPointF, note_id: str, text: str, bounds: QRectF = None) -> QRectF:
         font = QFont("Arial", 9)
         fm = QFontMetrics(font)
         badge_text = f"📝 {note_id}"
@@ -637,32 +645,19 @@ class InteractiveChartWidget(QLabel):
         rect_text = fm.boundingRect(0, 0, int(bubble_w - 16), 5000, Qt.TextWordWrap, text)
         bubble_h = max(38.0, float(rect_text.height() + 26))
         
-        bubble_x = scr_pt.x() + 14.0
-        bubble_y = scr_pt.y() - 14.0
+        bubble_x = box_pt.x()
+        bubble_y = box_pt.y()
 
         if bounds and bounds.isValid():
             margin = 8.0
-            # If bubble overflows right edge, flip to left of pin
             if bubble_x + bubble_w > bounds.right() - margin:
-                left_cand = scr_pt.x() - 14.0 - bubble_w
-                if left_cand >= bounds.left() + margin:
-                    bubble_x = left_cand
-                else:
-                    bubble_x = max(bounds.left() + margin, bounds.right() - margin - bubble_w)
-            
-            # Clamp left
+                bubble_x = bounds.right() - margin - bubble_w
             if bubble_x < bounds.left() + margin:
                 bubble_x = bounds.left() + margin
-                
-            # If bubble overflows bottom, push up
             if bubble_y + bubble_h > bounds.bottom() - margin:
                 bubble_y = bounds.bottom() - margin - bubble_h
-                
-            # If bubble overflows top, push down
             if bubble_y < bounds.top() + margin:
                 bubble_y = bounds.top() + margin
-                
-            # If height exceeds available bounds
             if bubble_h > bounds.height() - 2 * margin:
                 bubble_h = max(30.0, bounds.height() - 2 * margin)
                 bubble_y = bounds.top() + margin
@@ -670,7 +665,7 @@ class InteractiveChartWidget(QLabel):
         return QRectF(bubble_x, bubble_y, bubble_w, bubble_h)
 
     def hit_test_note(self, screen_pt: QPointF):
-        """Hit test for selecting or moving notes on chart."""
+        """Hit test for selecting or moving notes on chart. Returns (note, 'pin' | 'box') or None."""
         if not self.pixmap_updated or not self.notes:
             return None
         sz_up = self.pixmap_updated.size() * self.zoom_factor
@@ -680,44 +675,41 @@ class InteractiveChartWidget(QLabel):
         bounds = QRectF(center_x, center_y, sz_up.width(), sz_up.height())
 
         for note in reversed(self.notes):
-            scr_pt = self.chart_to_screen_coords(note["pos"], center_x, center_y)
-            dx = screen_pt.x() - scr_pt.x()
-            dy = screen_pt.y() - scr_pt.y()
-            if (dx*dx + dy*dy) <= 144.0: # 12px radius of pin
-                return note
-            rect = self._get_note_bubble_rect(scr_pt, note.get("id", "NT"), note.get("text", ""), bounds)
+            scr_pin = self.chart_to_screen_coords(note["pos"], center_x, center_y)
+            dx = screen_pt.x() - scr_pin.x()
+            dy = screen_pt.y() - scr_pin.y()
+            if (dx*dx + dy*dy) <= 144.0: # 12px radius of pin circle
+                return (note, "pin")
+            
+            box_chart_pos = note.get("box_pos", note["pos"] + QPointF(20.0, -20.0))
+            scr_box = self.chart_to_screen_coords(box_chart_pos, center_x, center_y)
+            rect = self._get_note_bubble_rect(scr_box, note.get("id", "NT"), note.get("text", ""), bounds)
             if rect.adjusted(-4, -4, 4, 4).contains(screen_pt):
-                return note
+                return (note, "box")
         return None
 
-    def _draw_note_callout(self, painter: QPainter, pt: QPointF, note: dict, is_selected: bool = False, bounds: QRectF = None):
-        """Draws a professional aeronautical note callout with pointer, ID badge, and text box."""
+    def _draw_note_callout(self, painter: QPainter, pin_pt: QPointF, note: dict, is_selected: bool = False, bounds: QRectF = None, box_pt: QPointF = None):
+        """Draws a professional aeronautical note callout with circle pin, connecting line, and text box."""
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         
         note_id = note.get("id", "NT")
         text = note.get("text", "")
 
-        # Pin marker at target location
+        # Pin circle marker at target location (Blue circle with white center)
         painter.setPen(QPen(QColor("#0284C7"), 2))
         painter.setBrush(QColor("#0284C7"))
-        painter.drawEllipse(pt, 4.0, 4.0)
+        painter.drawEllipse(pin_pt, 4.0, 4.0)
         painter.setBrush(QColor("#FFFFFF"))
-        painter.drawEllipse(pt, 1.5, 1.5)
+        painter.drawEllipse(pin_pt, 1.5, 1.5)
         
-        bubble_rect = self._get_note_bubble_rect(pt, note_id, text, bounds)
+        target_box_pt = box_pt if box_pt is not None else (pin_pt + QPointF(20.0, -20.0))
+        bubble_rect = self._get_note_bubble_rect(target_box_pt, note_id, text, bounds)
         
-        # Pointer leader line to bubble
+        # Pointer leader line connecting circle pin to text box
+        leader_target = self._get_leader_line_intersection(pin_pt, bubble_rect)
         painter.setPen(QPen(QColor("#0284C7"), 1.5, Qt.DashLine))
-        if bubble_rect.left() >= pt.x():
-            leader_target = QPointF(bubble_rect.left(), min(bubble_rect.bottom(), max(bubble_rect.top(), pt.y())))
-        elif bubble_rect.right() <= pt.x():
-            leader_target = QPointF(bubble_rect.right(), min(bubble_rect.bottom(), max(bubble_rect.top(), pt.y())))
-        elif bubble_rect.top() >= pt.y():
-            leader_target = QPointF(min(bubble_rect.right(), max(bubble_rect.left(), pt.x())), bubble_rect.top())
-        else:
-            leader_target = QPointF(min(bubble_rect.right(), max(bubble_rect.left(), pt.x())), bubble_rect.bottom())
-        painter.drawLine(pt, leader_target)
+        painter.drawLine(pin_pt, leader_target)
         
         # Yellow note callout box (with selection glow if selected)
         if is_selected:
@@ -745,7 +737,7 @@ class InteractiveChartWidget(QLabel):
         painter.drawText(text_rect, Qt.TextWordWrap, text)
         painter.restore()
 
-    def _get_error_badge_rect(self, pt: QPointF, error_id: str, bounds: QRectF = None) -> QRectF:
+    def _get_error_badge_rect(self, box_pt: QPointF, error_id: str, bounds: QRectF = None) -> QRectF:
         badge_font = QFont("Arial", 9)
         badge_font.setBold(True)
         fm = QFontMetrics(badge_font)
@@ -754,17 +746,13 @@ class InteractiveChartWidget(QLabel):
         badge_w = text_w + 14
         badge_h = 22.0
         
-        badge_x = pt.x() + 8.0
-        badge_y = pt.y() - 11.0
+        badge_x = box_pt.x()
+        badge_y = box_pt.y()
         
         if bounds and bounds.isValid():
             margin = 8.0
             if badge_x + badge_w > bounds.right() - margin:
-                left_cand = pt.x() - 8.0 - badge_w
-                if left_cand >= bounds.left() + margin:
-                    badge_x = left_cand
-                else:
-                    badge_x = max(bounds.left() + margin, bounds.right() - margin - badge_w)
+                badge_x = bounds.right() - margin - badge_w
             if badge_x < bounds.left() + margin:
                 badge_x = bounds.left() + margin
             if badge_y + badge_h > bounds.bottom() - margin:
@@ -775,7 +763,7 @@ class InteractiveChartWidget(QLabel):
         return QRectF(badge_x, badge_y, badge_w, badge_h)
 
     def hit_test_error(self, screen_pt: QPointF):
-        """Requirement 6: Hit test for selecting or moving error markers on chart."""
+        """Hit test for selecting or moving error markers on chart. Returns (error, 'pin' | 'box') or None."""
         if not self.pixmap_updated or not self.error_markers:
             return None
         sz_up = self.pixmap_updated.size() * self.zoom_factor
@@ -785,36 +773,38 @@ class InteractiveChartWidget(QLabel):
         bounds = QRectF(center_x, center_y, sz_up.width(), sz_up.height())
 
         for err in reversed(self.error_markers):
-            scr_pt = self.chart_to_screen_coords(err["pos"], center_x, center_y)
-            dx = screen_pt.x() - scr_pt.x()
-            dy = screen_pt.y() - scr_pt.y()
-            if (dx*dx + dy*dy) <= 144.0: # 12px radius of pin
-                return err
-            rect = self._get_error_badge_rect(scr_pt, err.get("id", "ERR"), bounds)
+            scr_pin = self.chart_to_screen_coords(err["pos"], center_x, center_y)
+            dx = screen_pt.x() - scr_pin.x()
+            dy = screen_pt.y() - scr_pin.y()
+            if (dx*dx + dy*dy) <= 144.0: # 12px radius of pin circle
+                return (err, "pin")
+            
+            box_chart_pos = err.get("box_pos", err["pos"] + QPointF(15.0, -11.0))
+            scr_box = self.chart_to_screen_coords(box_chart_pos, center_x, center_y)
+            rect = self._get_error_badge_rect(scr_box, err.get("id", "ERR"), bounds)
             if rect.adjusted(-4, -4, 4, 4).contains(screen_pt):
-                return err
+                return (err, "box")
         return None
 
-    def _draw_error_badge(self, painter: QPainter, pt: QPointF, error_id: str, is_selected: bool = False, bounds: QRectF = None):
-        """Draws a high-visibility crimson discrepancy badge [ ⚠️ ERR-00x ] pinned to coordinates."""
+    def _draw_error_badge(self, painter: QPainter, pin_pt: QPointF, error_id: str, is_selected: bool = False, bounds: QRectF = None, box_pt: QPointF = None):
+        """Draws discrepancy circle pin and badge with connecting leader line."""
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         
-        # Target crosshair pin at coordinates
+        # Circle pin marker at target location (Red circle with crosshair)
         painter.setPen(QPen(QColor("#EF4444"), 2))
         painter.setBrush(QColor("#EF4444"))
-        painter.drawEllipse(pt, 4.0, 4.0)
-        painter.drawLine(QPointF(pt.x() - 7, pt.y()), QPointF(pt.x() + 7, pt.y()))
-        painter.drawLine(QPointF(pt.x(), pt.y() - 7), QPointF(pt.x(), pt.y() + 7))
+        painter.drawEllipse(pin_pt, 4.0, 4.0)
+        painter.drawLine(QPointF(pin_pt.x() - 7, pin_pt.y()), QPointF(pin_pt.x() + 7, pin_pt.y()))
+        painter.drawLine(QPointF(pin_pt.x(), pin_pt.y() - 7), QPointF(pin_pt.x(), pin_pt.y() + 7))
         
-        badge_rect = self._get_error_badge_rect(pt, error_id, bounds)
+        target_box_pt = box_pt if box_pt is not None else (pin_pt + QPointF(15.0, -11.0))
+        badge_rect = self._get_error_badge_rect(target_box_pt, error_id, bounds)
         
-        # Leader line if badge was shifted/flipped
+        # Leader line connecting circle pin to badge
+        leader_target = self._get_leader_line_intersection(pin_pt, badge_rect)
         painter.setPen(QPen(QColor("#EF4444"), 1.2, Qt.DashLine))
-        if badge_rect.left() >= pt.x():
-            painter.drawLine(pt, QPointF(badge_rect.left(), pt.y()))
-        elif badge_rect.right() <= pt.x():
-            painter.drawLine(pt, QPointF(badge_rect.right(), pt.y()))
+        painter.drawLine(pin_pt, leader_target)
             
         badge_font = QFont("Arial", 9)
         badge_font.setBold(True)
@@ -915,13 +905,21 @@ class InteractiveChartWidget(QLabel):
         chart_bounds = QRectF(0, 0, w, h)
         # 3. Draw notes (with bounds clamping so large notes never go beyond chart borders)
         for note in self.notes:
-            pt = QPointF(note["pos"].x() * self.zoom_factor, note["pos"].y() * self.zoom_factor)
-            self._draw_note_callout(painter, pt, note, is_selected=False, bounds=chart_bounds)
+            pin_pt = QPointF(note["pos"].x() * self.zoom_factor, note["pos"].y() * self.zoom_factor)
+            box_chart_pos = note.get("box_pos")
+            if box_chart_pos is None:
+                box_chart_pos = note["pos"] + QPointF(20.0, -20.0)
+            box_pt = QPointF(box_chart_pos.x() * self.zoom_factor, box_chart_pos.y() * self.zoom_factor)
+            self._draw_note_callout(painter, pin_pt, note, is_selected=False, bounds=chart_bounds, box_pt=box_pt)
             
         # 4. Draw error badges (with bounds clamping)
         for err in self.error_markers:
-            pt = QPointF(err["pos"].x() * self.zoom_factor, err["pos"].y() * self.zoom_factor)
-            self._draw_error_badge(painter, pt, err["id"], is_selected=False, bounds=chart_bounds)
+            pin_pt = QPointF(err["pos"].x() * self.zoom_factor, err["pos"].y() * self.zoom_factor)
+            box_chart_pos = err.get("box_pos")
+            if box_chart_pos is None:
+                box_chart_pos = err["pos"] + QPointF(15.0, -11.0)
+            box_pt = QPointF(box_chart_pos.x() * self.zoom_factor, box_chart_pos.y() * self.zoom_factor)
+            self._draw_error_badge(painter, pin_pt, err["id"], is_selected=False, bounds=chart_bounds, box_pt=box_pt)
             
         painter.end()
         return pixmap
@@ -1027,15 +1025,23 @@ class InteractiveChartWidget(QLabel):
         bounds_on_screen = QRectF(x_up, y_up, sz_up.width(), sz_up.height())
         # Draw notes (with selection highlight if selected)
         for note in self.notes:
-            scr_pt = self.chart_to_screen_coords(note["pos"], x_up, y_up)
+            scr_pin = self.chart_to_screen_coords(note["pos"], x_up, y_up)
+            box_chart_pos = note.get("box_pos")
+            if box_chart_pos is None:
+                box_chart_pos = note["pos"] + QPointF(20.0, -20.0)
+            scr_box = self.chart_to_screen_coords(box_chart_pos, x_up, y_up)
             is_sel = (self.selected_note is not None and self.selected_note.get("id") == note.get("id"))
-            self._draw_note_callout(painter, scr_pt, note, is_selected=is_sel, bounds=bounds_on_screen)
+            self._draw_note_callout(painter, scr_pin, note, is_selected=is_sel, bounds=bounds_on_screen, box_pt=scr_box)
 
         # Draw error markers (with selection highlight if selected)
         for err in self.error_markers:
-            scr_pt = self.chart_to_screen_coords(err["pos"], x_up, y_up)
+            scr_pin = self.chart_to_screen_coords(err["pos"], x_up, y_up)
+            box_chart_pos = err.get("box_pos")
+            if box_chart_pos is None:
+                box_chart_pos = err["pos"] + QPointF(15.0, -11.0)
+            scr_box = self.chart_to_screen_coords(box_chart_pos, x_up, y_up)
             is_sel = (self.selected_error is not None and self.selected_error.get("id") == err.get("id"))
-            self._draw_error_badge(painter, scr_pt, err["id"], is_selected=is_sel, bounds=bounds_on_screen)
+            self._draw_error_badge(painter, scr_pin, err["id"], is_selected=is_sel, bounds=bounds_on_screen, box_pt=scr_box)
 
         painter.end()
 
@@ -1080,11 +1086,20 @@ class InteractiveChartWidget(QLabel):
                 return
 
             # 5. Check if clicking on an existing note to MOVE / SELECT it!
-            hit_note = self.hit_test_note(screen_pos)
-            if hit_note:
+            hit_note_res = self.hit_test_note(screen_pos)
+            if hit_note_res:
+                hit_note, part = hit_note_res
                 self.selected_note = hit_note
                 self.is_dragging_note = True
-                self.note_drag_offset = hit_note["pos"] - local_pt
+                self.drag_note_part = part
+                if part == "pin":
+                    self.note_drag_offset = hit_note["pos"] - local_pt
+                else:
+                    cur_box = hit_note.get("box_pos")
+                    if cur_box is None:
+                        cur_box = hit_note["pos"] + QPointF(20.0, -20.0)
+                        hit_note["box_pos"] = cur_box
+                    self.note_drag_offset = cur_box - local_pt
                 self.selected_error = None
                 self.setCursor(Qt.ClosedHandCursor)
                 self.note_selected.emit(hit_note.get("id", ""))
@@ -1097,11 +1112,20 @@ class InteractiveChartWidget(QLabel):
                     self.update()
 
             # 6. Check if clicking on an existing error to MOVE / SELECT it! (Requirement 6)
-            hit_err = self.hit_test_error(screen_pos)
-            if hit_err:
+            hit_err_res = self.hit_test_error(screen_pos)
+            if hit_err_res:
+                hit_err, part = hit_err_res
                 self.selected_error = hit_err
                 self.is_dragging_error = True
-                self.error_drag_offset = hit_err["pos"] - local_pt
+                self.drag_error_part = part
+                if part == "pin":
+                    self.error_drag_offset = hit_err["pos"] - local_pt
+                else:
+                    cur_box = hit_err.get("box_pos")
+                    if cur_box is None:
+                        cur_box = hit_err["pos"] + QPointF(15.0, -11.0)
+                        hit_err["box_pos"] = cur_box
+                    self.error_drag_offset = cur_box - local_pt
                 self.selected_note = None
                 self.setCursor(Qt.ClosedHandCursor)
                 self.error_selected.emit(hit_err.get("id", ""))
@@ -1158,7 +1182,10 @@ class InteractiveChartWidget(QLabel):
             if self.pixmap_updated:
                 new_pos.setX(max(10.0, min(float(self.pixmap_updated.width() - 10), new_pos.x())))
                 new_pos.setY(max(10.0, min(float(self.pixmap_updated.height() - 10), new_pos.y())))
-            self.selected_note["pos"] = new_pos
+            if getattr(self, 'drag_note_part', 'box') == 'pin':
+                self.selected_note["pos"] = new_pos
+            else:
+                self.selected_note["box_pos"] = new_pos
             self.update()
             return
 
@@ -1168,7 +1195,10 @@ class InteractiveChartWidget(QLabel):
             if self.pixmap_updated:
                 new_pos.setX(max(10.0, min(float(self.pixmap_updated.width() - 10), new_pos.x())))
                 new_pos.setY(max(10.0, min(float(self.pixmap_updated.height() - 10), new_pos.y())))
-            self.selected_error["pos"] = new_pos
+            if getattr(self, 'drag_error_part', 'box') == 'pin':
+                self.selected_error["pos"] = new_pos
+            else:
+                self.selected_error["box_pos"] = new_pos
             self.update()
             return
 
@@ -1241,13 +1271,15 @@ class InteractiveChartWidget(QLabel):
             screen_pos = QPointF(event.pos())
             parent_tab = self.window().tab_comparison if hasattr(self.window(), 'tab_comparison') else None
             if parent_tab:
-                hit_note = self.hit_test_note(screen_pos)
-                if hit_note:
+                hit_note_res = self.hit_test_note(screen_pos)
+                if hit_note_res:
+                    hit_note, _ = hit_note_res
                     parent_tab.edit_note_by_id(hit_note["id"])
                     event.accept()
                     return
-                hit_err = self.hit_test_error(screen_pos)
-                if hit_err:
+                hit_err_res = self.hit_test_error(screen_pos)
+                if hit_err_res:
+                    hit_err, _ = hit_err_res
                     parent_tab.edit_error_by_id(hit_err["id"])
                     event.accept()
                     return
@@ -1325,8 +1357,9 @@ class InteractiveChartWidget(QLabel):
         screen_pos = QPointF(event.pos())
         parent_tab = self.window().tab_comparison if hasattr(self.window(), 'tab_comparison') else None
         
-        hit_note = self.hit_test_note(screen_pos)
-        if hit_note:
+        hit_note_res = self.hit_test_note(screen_pos)
+        if hit_note_res:
+            hit_note, _ = hit_note_res
             menu = self._create_styled_context_menu()
             action_edit = menu.addAction(f"✏️  Edit Note {hit_note.get('id', '')}")
             action_del = menu.addAction(f"🗑️  Delete Note {hit_note.get('id', '')}")
@@ -1339,8 +1372,9 @@ class InteractiveChartWidget(QLabel):
             event.accept()
             return
 
-        hit_err = self.hit_test_error(screen_pos)
-        if hit_err:
+        hit_err_res = self.hit_test_error(screen_pos)
+        if hit_err_res:
+            hit_err, _ = hit_err_res
             menu = self._create_styled_context_menu()
             action_edit = menu.addAction(f"✏️  Edit Error {hit_err.get('id', '')}")
             action_del = menu.addAction(f"🗑️  Delete Error {hit_err.get('id', '')}")
@@ -1518,35 +1552,28 @@ class ComparisonTab(QWidget):
         col_center_right = QVBoxLayout()
         col_center_right.setSpacing(6)
 
-        # CenterRight Upper: Draw (Red), Mark (Green), and Clear Drawings
+        # CenterRight Upper: Record Error and Remove Error
         row_cright_upper = QHBoxLayout()
         row_cright_upper.setSpacing(6)
-        self.btn_draw = QPushButton("Draw: OFF")
-        self.btn_draw.setToolTip("Toggle Drawing Mode: Draw red discrepancy highlight lines on chart")
-        self.btn_draw.setStyleSheet("QPushButton { color: #EF4444; font-weight: bold; }")
-        self.btn_draw.setEnabled(False)
-        self.btn_draw.clicked.connect(self.toggle_drawing_mode)
-        row_cright_upper.addWidget(self.btn_draw)
+        self.btn_pin_error = QPushButton("Record Error")
+        self.btn_pin_error.setToolTip("Click to toggle Record Error Mode, then click on the chart to log and pin a discrepancy.")
+        self.btn_pin_error.setEnabled(False)
+        self.btn_pin_error.clicked.connect(self.toggle_error_pin_mode)
+        row_cright_upper.addWidget(self.btn_pin_error)
 
-        self.btn_mark = QPushButton("Mark: OFF")
-        self.btn_mark.setToolTip("Toggle Mark Mode: Draw thick transparent green lines to mark checked places (excluded from report screenshots)")
-        self.btn_mark.setStyleSheet("QPushButton { color: #10B981; font-weight: bold; }")
-        self.btn_mark.setEnabled(False)
-        self.btn_mark.clicked.connect(self.toggle_mark_mode)
-        row_cright_upper.addWidget(self.btn_mark)
-
-        self.btn_clear_draw = QPushButton("Clear Drawings")
-        self.btn_clear_draw.setToolTip("Open Clear Drawings dialog to remove selected highlight drawings or marks")
-        self.btn_clear_draw.setEnabled(False)
-        self.btn_clear_draw.clicked.connect(self.prompt_clear_drawings)
-        row_cright_upper.addWidget(self.btn_clear_draw)
+        self.btn_remove_error = QPushButton("Remove Error")
+        self.btn_remove_error.setToolTip("Remove selected error from chart and log, or choose one to remove.")
+        self.btn_remove_error.setEnabled(False)
+        self.btn_remove_error.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
+        self.btn_remove_error.clicked.connect(self.remove_selected_error)
+        row_cright_upper.addWidget(self.btn_remove_error)
         row_cright_upper.addStretch()
         col_center_right.addLayout(row_cright_upper)
 
         # CenterRight Lower: Add Note and Remove Note
         row_cright_lower = QHBoxLayout()
         row_cright_lower.setSpacing(6)
-        self.btn_note = QPushButton("Add Note: OFF")
+        self.btn_note = QPushButton("Add Note")
         self.btn_note.setToolTip("Click to toggle Note Mode, then click on the chart to place a text note.")
         self.btn_note.setEnabled(False)
         self.btn_note.clicked.connect(self.toggle_note_mode)
@@ -1562,11 +1589,10 @@ class ComparisonTab(QWidget):
         col_center_right.addLayout(row_cright_lower)
 
         # Symmetrical balancing:
-        # Upper row: Draw (95px) + 6px spacing + Mark (95px) + 6px spacing + Clear (145px) = 347px
+        # Upper row: Record Error (196px) + 6px spacing + Remove Error (145px) = 347px
         # Lower row: Add Note (196px) + 6px spacing + Remove Note (145px) = 347px
-        self.btn_draw.setFixedWidth(95)
-        self.btn_mark.setFixedWidth(95)
-        self.btn_clear_draw.setFixedWidth(145)
+        self.btn_pin_error.setFixedWidth(196)
+        self.btn_remove_error.setFixedWidth(145)
         self.btn_note.setFixedWidth(196)
         self.btn_remove_note.setFixedWidth(145)
 
@@ -1576,18 +1602,33 @@ class ComparisonTab(QWidget):
         col_right = QVBoxLayout()
         col_right.setSpacing(6)
 
-        # Right Upper (Picture 17)
+        # Right Upper: Draw (Red), Mark (Green), and Clear
         row_right_upper = QHBoxLayout()
         row_right_upper.setSpacing(6)
-        self.btn_pin_error = QPushButton("Record Error: OFF")
-        self.btn_pin_error.setToolTip("Click to toggle Record Error Mode, then click on the chart to log and pin a discrepancy.")
-        self.btn_pin_error.setEnabled(False)
-        self.btn_pin_error.clicked.connect(self.toggle_error_pin_mode)
-        row_right_upper.addWidget(self.btn_pin_error)
+        self.btn_draw = QPushButton("Draw")
+        self.btn_draw.setToolTip("Toggle Drawing Mode: Draw red discrepancy highlight lines on chart")
+        self.btn_draw.setStyleSheet("QPushButton { color: #EF4444; font-weight: bold; }")
+        self.btn_draw.setEnabled(False)
+        self.btn_draw.clicked.connect(self.toggle_drawing_mode)
+        row_right_upper.addWidget(self.btn_draw)
+
+        self.btn_mark = QPushButton("Mark")
+        self.btn_mark.setToolTip("Toggle Mark Mode: Draw thick transparent green lines to mark checked places (excluded from report screenshots)")
+        self.btn_mark.setStyleSheet("QPushButton { color: #10B981; font-weight: bold; }")
+        self.btn_mark.setEnabled(False)
+        self.btn_mark.clicked.connect(self.toggle_mark_mode)
+        row_right_upper.addWidget(self.btn_mark)
+
+        self.btn_clear_draw = QPushButton("Clear")
+        self.btn_clear_draw.setToolTip("Open Clear dialog to remove selected highlight drawings or marks")
+        self.btn_clear_draw.setEnabled(False)
+        self.btn_clear_draw.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
+        self.btn_clear_draw.clicked.connect(self.prompt_clear_drawings)
+        row_right_upper.addWidget(self.btn_clear_draw)
         row_right_upper.addStretch()
         col_right.addLayout(row_right_upper)
 
-        # Right Lower (Picture 18)
+        # Right Lower: Save Annotated Chart
         row_right_lower = QHBoxLayout()
         row_right_lower.setSpacing(6)
         self.btn_save_annotated = QPushButton("Save Annotated Chart to Report")
@@ -1599,12 +1640,22 @@ class ComparisonTab(QWidget):
         row_right_lower.addStretch()
         col_right.addLayout(row_right_lower)
 
+        # Symmetrical balancing for Right Part:
+        # Upper row: Draw (85px) + 6px + Mark (85px) + 6px + Clear (85px) = 267px
+        # Lower row: Save Annotated Chart to Report = 267px
+        self.btn_draw.setFixedWidth(85)
+        self.btn_mark.setFixedWidth(85)
+        self.btn_clear_draw.setFixedWidth(85)
+        self.btn_save_annotated.setFixedWidth(267)
+
         toolbar_section.addLayout(col_right)
         toolbar_section.addStretch()
 
         layout.addLayout(toolbar_section)
 
+        # Third Section: Sub-toolbar stretched edge-to-edge to fit application borders
         sub_toolbar = QHBoxLayout()
+        sub_toolbar.setContentsMargins(0, 4, 0, 4)
         lbl_overlay = QLabel("Overlay Balance (Updated/Old):")
         lbl_overlay.setToolTip("Adjust overlay transparency blend between Updated and Old charts")
         sub_toolbar.addWidget(lbl_overlay)
@@ -1614,7 +1665,7 @@ class ComparisonTab(QWidget):
         self.slider_opacity.setValue(50)
         self.slider_opacity.setEnabled(False)
         self.slider_opacity.valueChanged.connect(self.on_opacity_changed)
-        sub_toolbar.addWidget(self.slider_opacity)
+        sub_toolbar.addWidget(self.slider_opacity, 1)
 
         sub_toolbar.addSpacing(20)
         self.label_zoom = QLabel("Zoom: 100%")
@@ -1662,7 +1713,6 @@ class ComparisonTab(QWidget):
         """)
         self.btn_toggle_bg.clicked.connect(self.toggle_dark_background)
         sub_toolbar.addWidget(self.btn_toggle_bg)
-        sub_toolbar.addStretch()
 
         layout.addLayout(sub_toolbar)
 
@@ -1718,6 +1768,13 @@ class ComparisonTab(QWidget):
         self.float_btn_mark.clicked.connect(self.toggle_mark_mode)
         fp_layout.addWidget(self.float_btn_mark)
 
+        self.float_btn_clear = QPushButton()
+        self.float_btn_clear.setFixedSize(42, 42)
+        self.float_btn_clear.setEnabled(False)
+        self.float_btn_clear.setToolTip("Clear Drawings (Select and remove drawings or marks)")
+        self.float_btn_clear.clicked.connect(self.prompt_clear_drawings)
+        fp_layout.addWidget(self.float_btn_clear)
+
         self.float_btn_note = QPushButton()
         self.float_btn_note.setFixedSize(42, 42)
         self.float_btn_note.setCheckable(True)
@@ -1734,13 +1791,6 @@ class ComparisonTab(QWidget):
         self.float_btn_error.clicked.connect(self.toggle_error_pin_mode)
         fp_layout.addWidget(self.float_btn_error)
 
-        self.float_btn_clear = QPushButton()
-        self.float_btn_clear.setFixedSize(42, 42)
-        self.float_btn_clear.setEnabled(False)
-        self.float_btn_clear.setToolTip("Clear Drawings (Select and remove drawings or marks)")
-        self.float_btn_clear.clicked.connect(self.prompt_clear_drawings)
-        fp_layout.addWidget(self.float_btn_clear)
-
         self.float_btn_save = QPushButton()
         self.float_btn_save.setFixedSize(42, 42)
         self.float_btn_save.setEnabled(False)
@@ -1754,9 +1804,9 @@ class ComparisonTab(QWidget):
             self.float_btn_rotate,
             self.float_btn_draw,
             self.float_btn_mark,
+            self.float_btn_clear,
             self.float_btn_note,
             self.float_btn_error,
-            self.float_btn_clear,
             self.float_btn_save,
         ]
         for btn in self.floating_buttons:
@@ -1800,9 +1850,9 @@ class ComparisonTab(QWidget):
             (self.float_btn_rotate, draw_rotate),
             (self.float_btn_draw, draw_pencil),
             (self.float_btn_mark, draw_marker),
+            (self.float_btn_clear, draw_clear),
             (self.float_btn_note, draw_note),
             (self.float_btn_error, draw_warning),
-            (self.float_btn_clear, draw_clear),
             (self.float_btn_save, draw_floppy),
         ]
         for btn, drawer in buttons_and_drawers:
@@ -1926,6 +1976,7 @@ class ComparisonTab(QWidget):
         self.btn_note.setEnabled(True)
         self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
         self.btn_pin_error.setEnabled(True)
+        self.btn_remove_error.setEnabled(len(self.chart_display.error_markers) > 0)
         self.btn_clear_draw.setEnabled(True)
         
         # Enable floating overlay buttons
@@ -1959,6 +2010,7 @@ class ComparisonTab(QWidget):
                             "comments": err.comments
                         })
                         existing_ids.add(err.id)
+            self.btn_remove_error.setEnabled(len(self.chart_display.error_markers) > 0)
         
         self.charts_loaded.emit()
         QMessageBox.information(self, "Success", "Charts loaded successfully.")
@@ -1991,6 +2043,7 @@ class ComparisonTab(QWidget):
         self.btn_remove_note.setEnabled(False)
         self.btn_remove_note.setText("Remove Note")
         self.btn_pin_error.setEnabled(False)
+        self.btn_remove_error.setEnabled(False)
         self.btn_clear_draw.setEnabled(False)
         self.btn_save_annotated.setEnabled(False)
         self.btn_load.setEnabled(False)
@@ -2024,12 +2077,8 @@ class ComparisonTab(QWidget):
 
     def on_note_selected_changed(self, note_id: str):
         """Updates Remove Note button when user clicks a note on chart."""
-        if note_id:
-            self.btn_remove_note.setEnabled(True)
-            self.btn_remove_note.setText(f"Remove Note ({note_id})")
-        else:
-            self.btn_remove_note.setText("Remove Note")
-            self.btn_remove_note.setEnabled(len(self.chart_display.notes) > 0)
+        self.btn_remove_note.setText("Remove Note")
+        self.btn_remove_note.setEnabled(bool(note_id) or len(self.chart_display.notes) > 0)
 
     def set_active_tool_mode(self, mode_name: str):
         """Unified mode controller ensuring tool mutually exclusive states."""
@@ -2061,38 +2110,38 @@ class ComparisonTab(QWidget):
             self.float_btn_drag.setChecked(False)
 
         if mode_name == "draw":
-            self.btn_draw.setText("Draw: ON")
+            self.btn_draw.setText("Draw")
             self.btn_draw.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
             self.float_btn_draw.setChecked(True)
         else:
-            self.btn_draw.setText("Draw: OFF")
+            self.btn_draw.setText("Draw")
             self.btn_draw.setStyleSheet("QPushButton { color: #EF4444; font-weight: bold; }")
             self.float_btn_draw.setChecked(False)
 
         if mode_name == "mark":
-            self.btn_mark.setText("Mark: ON")
+            self.btn_mark.setText("Mark")
             self.btn_mark.setStyleSheet("QPushButton { background-color: #10B981; color: white; font-weight: bold; }")
             self.float_btn_mark.setChecked(True)
         else:
-            self.btn_mark.setText("Mark: OFF")
+            self.btn_mark.setText("Mark")
             self.btn_mark.setStyleSheet("QPushButton { color: #10B981; font-weight: bold; }")
             self.float_btn_mark.setChecked(False)
 
         if mode_name == "note":
-            self.btn_note.setText("Add Note: ON")
+            self.btn_note.setText("Add Note")
             self.btn_note.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; }")
             self.float_btn_note.setChecked(True)
         else:
-            self.btn_note.setText("Add Note: OFF")
+            self.btn_note.setText("Add Note")
             self.btn_note.setStyleSheet("")
             self.float_btn_note.setChecked(False)
 
         if mode_name == "error":
-            self.btn_pin_error.setText("Record Error: ON")
+            self.btn_pin_error.setText("Record Error")
             self.btn_pin_error.setStyleSheet("QPushButton { background-color: #EF4444; color: white; font-weight: bold; }")
             self.float_btn_error.setChecked(True)
         else:
-            self.btn_pin_error.setText("Record Error: OFF")
+            self.btn_pin_error.setText("Record Error")
             self.btn_pin_error.setStyleSheet("")
             self.float_btn_error.setChecked(False)
 
@@ -2145,6 +2194,7 @@ class ComparisonTab(QWidget):
                 note_obj = {
                     "id": note_id,
                     "pos": pt,
+                    "box_pos": QPointF(pt.x() + 20.0, pt.y() - 20.0),
                     "text": note_text,
                     "chart": chart_name
                 }
@@ -2154,8 +2204,10 @@ class ComparisonTab(QWidget):
                 self.btn_save_annotated.setEnabled(True)
                 if hasattr(self, 'float_btn_save'):
                     self.float_btn_save.setEnabled(True)
+                if hasattr(self, 'btn_remove_error'):
+                    self.btn_remove_error.setEnabled(True)
                 self.btn_remove_note.setEnabled(True)
-                self.btn_remove_note.setText(f"Remove Note ({note_id})")
+                self.btn_remove_note.setText("Remove Note")
 
                 # Item 4: List in Errors tab with ID NT-00x, Type N/A, Severity N/A
                 if tab_errors:
@@ -2213,6 +2265,7 @@ class ComparisonTab(QWidget):
                 # Requirement 6: Pin Error ID badge on the chart with full metadata
                 self.chart_display.error_markers.append({
                     "pos": pt,
+                    "box_pos": QPointF(pt.x() + 15.0, pt.y() - 11.0),
                     "id": data["id"],
                     "type": data["type"],
                     "description": data["description"],
@@ -2224,6 +2277,8 @@ class ComparisonTab(QWidget):
                 self.btn_save_annotated.setEnabled(True)
                 if hasattr(self, 'float_btn_save'):
                     self.float_btn_save.setEnabled(True)
+                if hasattr(self, 'btn_remove_error'):
+                    self.btn_remove_error.setEnabled(True)
 
                 tab_report = getattr(parent_win, 'tab_report', None)
                 if tab_report:
@@ -2259,6 +2314,7 @@ class ComparisonTab(QWidget):
 
         marker_obj = {
             "pos": QPointF(pos_x, pos_y),
+            "box_pos": QPointF(pos_x + 15.0, pos_y - 11.0),
             "id": error_id,
             "type": data.get("type", ""),
             "description": data.get("description", ""),
@@ -2365,7 +2421,8 @@ class ComparisonTab(QWidget):
 
     def on_error_selected_changed(self, error_id: str):
         """Callback when an error marker is selected on the chart."""
-        pass
+        if hasattr(self, 'btn_remove_error'):
+            self.btn_remove_error.setEnabled(bool(error_id) or len(self.chart_display.error_markers) > 0)
 
     def edit_error_by_id(self, error_id: str):
         """Requirement 6: Edit error directly from Chart Comparison tab using the same principle as Notes."""
@@ -2448,8 +2505,34 @@ class ComparisonTab(QWidget):
         if tab_report:
             tab_report.update_summary_metrics()
 
+        if hasattr(self, 'btn_remove_error'):
+            self.btn_remove_error.setEnabled(len(self.chart_display.error_markers) > 0)
+
         if prompt_confirmation:
             QMessageBox.information(self, "Success", f"Error {error_id} has been removed.")
+
+    def remove_selected_error(self):
+        """Remove selected error from chart and log, or choose one to remove."""
+        if not self.chart_display.error_markers:
+            QMessageBox.information(self, "No Errors", "There are no errors placed on the chart to remove.")
+            return
+
+        error_to_remove = getattr(self.chart_display, 'selected_error', None)
+        if not error_to_remove:
+            items = [f"{m.get('id', 'ERR')}: {m.get('type', '')} - {m.get('description', '')[:30]}" for m in self.chart_display.error_markers]
+            chosen, ok = QInputDialog.getItem(
+                self, "Select Error to Remove", "Choose an error to remove:", items, 0, False
+            )
+            if ok and chosen:
+                chosen_id = chosen.split(":")[0].strip()
+                for m in self.chart_display.error_markers:
+                    if m.get("id") == chosen_id:
+                        error_to_remove = m
+                        break
+
+        if error_to_remove:
+            error_id = error_to_remove.get("id", "")
+            self.delete_error_by_id(error_id)
 
     def set_view_mode(self, mode):
         self.flicker_manager.pause()
